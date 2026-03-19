@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import AppHeader from "@/components/ui/AppHeader";
 
 type DownloadTarget = "windows" | "mac" | "linux";
 type ModalMode = "download" | "trailer";
@@ -225,10 +226,10 @@ export default function LandingPage() {
 
   const heroStats = useMemo(
     () => [
-      { label: "Розыск", value: "1–5 уровней" },
-      { label: "Мир", value: "персистентный, реалтайм" },
-      { label: "Скилл-три", value: "сеть / веб / соц. инженерия" },
-      { label: "Экономика", value: "CryptoCoin + Marketplace" },
+      { label: "Розыск", value: "1–5 уровней", tone: "cyan" as const },
+      { label: "Мир", value: "персистентный, реалтайм", tone: "blue" as const },
+      { label: "Скилл-три", value: "сеть / веб / социнж", tone: "emerald" as const },
+      { label: "Экономика", value: "CryptoCoin + Marketplace", tone: "cyan" as const },
     ],
     []
   );
@@ -260,91 +261,15 @@ export default function LandingPage() {
 
   return (
     <div className="relative min-h-screen overflow-hidden">
-      <motion.div
-        aria-hidden="true"
-        className="absolute inset-0 opacity-70"
-        style={{
-          background:
-            "radial-gradient(1000px 640px at 15% 10%, rgba(34,211,238,0.26), transparent 55%), radial-gradient(800px 600px at 90% 15%, rgba(59,130,246,0.20), transparent 52%), radial-gradient(900px 650px at 50% 95%, rgba(16,185,129,0.16), transparent 55%)",
-        }}
-        animate={{
-          filter: ["hue-rotate(0deg)", "hue-rotate(12deg)", "hue-rotate(0deg)"],
-        }}
-        transition={{ duration: 12, repeat: Infinity, ease: "linear" }}
+      <AppHeader
+        subtitle="Exploit Network"
+        nav={[
+          { href: "/#professions", label: "Профессии" },
+          { href: "/#world", label: "Мир и риски" },
+          { href: "/#economy", label: "Экономика" },
+          { href: "/marketplace", label: "Торговая площадка" },
+        ]}
       />
-
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 opacity-22"
-        style={{
-          backgroundImage:
-            "repeating-linear-gradient(to bottom, rgba(255,255,255,0.08) 0px, rgba(255,255,255,0.02) 1px, rgba(0,0,0,0) 3px)",
-          mixBlendMode: "overlay",
-        }}
-      />
-
-      <header className="sticky top-0 z-40 border-b border-white/10 bg-[#05060a]/65 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3">
-          <div className="flex items-center gap-3">
-            <div className="relative h-10 w-10 overflow-hidden rounded-2xl border border-cyan-400/20 bg-cyan-500/10">
-              <Image
-                src="/zd-logo.svg"
-                alt="Zero Day"
-                fill
-                sizes="40px"
-                className="object-cover"
-                priority
-              />
-            </div>
-            <div>
-              <div className="text-base font-semibold text-zinc-50">Zero Day</div>
-              <div className="text-sm text-cyan-200/80">Exploit Network</div>
-            </div>
-          </div>
-
-          <nav className="hidden items-center gap-2 lg:flex">
-            <button
-              onClick={() => scrollToId("professions")}
-              className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-base text-zinc-200 hover:bg-white/10"
-            >
-              Профессии
-            </button>
-            <button
-              onClick={() => scrollToId("world")}
-              className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-base text-zinc-200 hover:bg-white/10"
-            >
-              Мир и риски
-            </button>
-            <button
-              onClick={() => scrollToId("economy")}
-              className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-base text-zinc-200 hover:bg-white/10"
-            >
-              Экономика
-            </button>
-            <Link
-              href="/marketplace"
-              className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-base text-zinc-200 hover:bg-white/10"
-            >
-              Торговая площадка
-            </Link>
-          </nav>
-
-          <div className="flex items-center gap-2">
-            <Link
-              href="/account"
-              className="hidden rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-base text-zinc-200 hover:bg-white/10 md:inline-flex"
-            >
-              Личный кабинет
-            </Link>
-            <button
-              onClick={() => openModal("download")}
-              className="rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-5 py-2.5 text-base font-semibold text-zinc-950 shadow-[0_0_45px_rgba(34,211,238,0.20)] hover:brightness-110 active:brightness-95"
-            >
-              Скачать игру
-            </button>
-          </div>
-        </div>
-      </header>
 
       <main className="relative z-10">
         {/* HERO */}
@@ -382,17 +307,17 @@ export default function LandingPage() {
                 </button>
               </div>
 
-              <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="mt-8 grid grid-cols-1 auto-rows-fr gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 {heroStats.map((s) => (
                   <GlassCard
                     key={s.label}
-                    className="p-6 min-h-[170px] text-left transition-transform duration-300 hover:-translate-y-1"
-                    glow="cyan"
+                    className="h-full p-4 text-left transition-transform duration-300 hover:-translate-y-1"
+                    glow={s.tone}
                   >
-                    <div className="text-sm uppercase tracking-widest text-cyan-200/70">
+                    <div className="text-[11px] uppercase tracking-[0.18em] text-cyan-200/75">
                       {s.label}
                     </div>
-                    <div className="mt-3 text-xl font-semibold leading-snug text-zinc-50">
+                    <div className="mt-2 break-words text-[0.98rem] font-semibold leading-snug text-zinc-50">
                       {s.value}
                     </div>
                   </GlassCard>

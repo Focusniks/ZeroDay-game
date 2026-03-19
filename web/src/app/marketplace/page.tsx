@@ -2,20 +2,25 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { signOut, useSession } from "next-auth/react";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import AppHeader from "@/components/ui/AppHeader";
+import Select from "@/components/ui/Select";
 
 type LotCategory = "tools" | "scripts" | "zero-day";
 type LotKind = "service" | "script" | "program" | "data";
 
 type CategoryFilter = "all" | LotCategory | "mine";
+type ViewTab = "catalog" | "my-lots" | "my-deals";
+type SortOption = "newest" | "price_asc" | "price_desc" | "rating";
 
 type User = {
   id: string;
   name: string;
   hatRank: "White Hat" | "Gray Hat" | "Black Hat";
+  accessToken: string;
 };
 
 type Lot = {
@@ -40,12 +45,41 @@ type ThreadMessage = {
 };
 
 type Thread = {
+  id: string;
   lotId: string;
   buyerId: string;
   sellerId: string;
   status: "requested" | "in_progress" | "done";
   messages: ThreadMessage[];
 };
+
+type DealMeta = {
+  threadId: string;
+  status: Thread["status"];
+  role: "buyer" | "seller";
+};
+
+const sortOptions: Array<{ value: SortOption; label: string }> = [
+  { value: "newest", label: "Сначала новые" },
+  { value: "price_asc", label: "Цена: по возрастанию" },
+  { value: "price_desc", label: "Цена: по убыванию" },
+  { value: "rating", label: "Рейтинг: высокий" },
+];
+
+const lotCategoryOptions: Array<{ value: LotCategory; label: string }> = [
+  { value: "tools", label: "Инструменты" },
+  { value: "scripts", label: "Скрипты" },
+  { value: "zero-day", label: "Zero-Day" },
+];
+
+const lotKindOptions: Array<{ value: LotKind; label: string }> = [
+  { value: "service", label: "Услуга" },
+  { value: "script", label: "Скрипт" },
+  { value: "program", label: "Программа" },
+  { value: "data", label: "Информация" },
+];
+
+const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_HTTP_URL ?? process.env.BACKEND_HTTP_URL ?? "http://127.0.0.1:8000";
 
 function GlassCard({
   className,
@@ -90,6 +124,18 @@ function Stars({ rating }: { rating: number }) {
         );
       })}
       <span className="ml-1 text-zinc-400">{rating.toFixed(1)}</span>
+    </div>
+  );
+}
+
+function SkeletonCard() {
+  return (
+    <div className="animate-pulse rounded-2xl border border-white/10 bg-white/5 p-5">
+      <div className="h-44 rounded-xl border border-white/10 bg-white/10" />
+      <div className="mt-4 h-5 w-2/3 rounded bg-white/10" />
+      <div className="mt-3 h-4 w-full rounded bg-white/10" />
+      <div className="mt-2 h-4 w-5/6 rounded bg-white/10" />
+      <div className="mt-4 h-9 w-full rounded-xl bg-white/10" />
     </div>
   );
 }
@@ -148,113 +194,43 @@ function Modal({
 }
 
 export default function MarketplacePage() {
-  const seedLots: Lot[] = useMemo(
-    () => [
-      {
-        id: "itm-1",
-        name: "Exploit Framework: Chain Builder",
-        category: "tools",
-        kind: "program",
-        description: "Собирай цепочки под контекст цели. Рейтинг продавца влияет на надежность.",
-        price: 920,
-        rating: 4.7,
-        sellerId: "x1n0x",
-        sellerName: "x1n0x",
-        img: "/zd-web-builder.svg",
-        createdAt: Date.now() - 1000 * 60 * 60 * 20,
-      },
-      {
-        id: "itm-2",
-        name: "Netscanner: Route Graph",
-        category: "tools",
-        kind: "program",
-        description: "Граф маршрутов в песочнице: подсказки по поверхности атаки и скрытности.",
-        price: 610,
-        rating: 4.3,
-        sellerId: "proxyghost",
-        sellerName: "proxyghost",
-        img: "/zd-network-map.svg",
-        createdAt: Date.now() - 1000 * 60 * 60 * 50,
-      },
-      {
-        id: "itm-3",
-        name: "Web Script: Drag&Drop Payload",
-        category: "scripts",
-        kind: "script",
-        description: "Набор скриптов для веб-модулей конструктора. Визуально быстрый старт.",
-        price: 420,
-        rating: 4.1,
-        sellerId: "bento.dev",
-        sellerName: "bento.dev",
-        img: "/zd-hero-screen.svg",
-        createdAt: Date.now() - 1000 * 60 * 60 * 8,
-      },
-      {
-        id: "itm-4",
-        name: "Zero-Day (одноразовый): Onion Bait",
-        category: "zero-day",
-        kind: "data",
-        description: "Редкий одноразовый эксплойт (в механике игры). Высокая цена и высокий риск.",
-        price: 14850,
-        rating: 4.9,
-        sellerId: "darkmarket-npc",
-        sellerName: "darkmarket-npc",
-        img: "/zd-darkweb.svg",
-        createdAt: Date.now() - 1000 * 60 * 60 * 110,
-      },
-      {
-        id: "itm-5",
-        name: "Packet Sniffer: Traffic Lens",
-        category: "tools",
-        kind: "program",
-        description: "Перехват и анализ трафика (sim). Лучше понимать следы и реакцию IDS/IPS.",
-        price: 780,
-        rating: 4.4,
-        sellerId: "trace/clean",
-        sellerName: "trace/clean",
-        img: "/zd-traceback.svg",
-        createdAt: Date.now() - 1000 * 60 * 60 * 30,
-      },
-      {
-        id: "itm-6",
-        name: "Social Engine Toolkit: Whisper Roles",
-        category: "scripts",
-        kind: "service",
-        description: "Сценарии общения для роли/репутации и приватных каналов.",
-        price: 560,
-        rating: 4.0,
-        sellerId: "kisscord",
-        sellerName: "kisscord",
-        img: "/zd-world.svg",
-        createdAt: Date.now() - 1000 * 60 * 60 * 16,
-      },
-    ],
-    []
-  );
-
   const router = useRouter();
   const { data: session, status } = useSession();
 
-  const user: User | null =
-    status === "authenticated" && session?.user
-      ? {
-          id: session.user.id,
-          name: session.user.name ?? "operator",
-          hatRank: session.user.hatRank as User["hatRank"],
-        }
-      : null;
+  const user: User | null = useMemo(
+    () =>
+      status === "authenticated" && session?.user
+        ? {
+            id: session.user.id,
+            name: session.user.name ?? "operator",
+            hatRank: session.user.hatRank as User["hatRank"],
+            accessToken: ((session.user as any).accessToken ?? "") as string,
+          }
+        : null,
+    [session?.user, status]
+  );
 
   const authorized = status === "authenticated" && !!user;
 
+  const [viewTab, setViewTab] = useState<ViewTab>("catalog");
   const [category, setCategory] = useState<CategoryFilter>("all");
   const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<SortOption>("newest");
   const [selected, setSelected] = useState<Lot | null>(null);
-  const [lots, setLots] = useState<Lot[]>(seedLots);
-  const [threads, setThreads] = useState<Record<string, Thread>>({});
+  const [lots, setLots] = useState<Lot[]>([]);
+  const [dealMetaByLotId, setDealMetaByLotId] = useState<Record<string, DealMeta>>({});
+  const [activeThread, setActiveThread] = useState<Thread | null>(null);
+  const [loadingLots, setLoadingLots] = useState(false);
+  const [lotsError, setLotsError] = useState<string | null>(null);
+  const [limit] = useState(12);
+  const [offset, setOffset] = useState(0);
+  const [total, setTotal] = useState(0);
 
   const [createOpen, setCreateOpen] = useState(false);
 
   const [chatText, setChatText] = useState("");
+  const [chatSending, setChatSending] = useState(false);
+  const [threadLastSyncAt, setThreadLastSyncAt] = useState<number | null>(null);
 
   const [draft, setDraft] = useState<{
     name: string;
@@ -273,8 +249,7 @@ export default function MarketplacePage() {
   });
 
   const [createError, setCreateError] = useState<string | null>(null);
-
-  const activeThread = selected ? threads[selected.id] : undefined;
+  const [threadBusy, setThreadBusy] = useState(false);
   const isSeller = !!(selected && user && selected.sellerId === user.id);
   const canChat =
     !!(
@@ -282,14 +257,8 @@ export default function MarketplacePage() {
       user &&
       (activeThread.buyerId === user.id || activeThread.sellerId === user.id)
     );
-  const statusLabel =
-    activeThread?.status === "requested"
-      ? "Запрошено"
-      : activeThread?.status === "in_progress"
-        ? "В процессе"
-        : activeThread?.status === "done"
-          ? "Готово"
-          : "—";
+  const statusLabel = (status: Thread["status"] | undefined) =>
+    status === "requested" ? "Запрошено" : status === "in_progress" ? "В процессе" : status === "done" ? "Готово" : "—";
 
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const activeThreadMessagesLength = activeThread?.messages.length ?? 0;
@@ -298,138 +267,275 @@ export default function MarketplacePage() {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [activeThreadMessagesLength]);
 
+  const loadLots = useCallback(async () => {
+    setLoadingLots(true);
+    setLotsError(null);
+    try {
+      const params = new URLSearchParams();
+      if (query.trim()) params.set("q", query.trim());
+      if (category !== "all" && category !== "mine") params.set("category", category);
+      params.set("sort", sort);
+      params.set("limit", String(limit));
+      params.set("offset", String(offset));
+
+      const endpoint =
+        viewTab === "my-lots"
+          ? `${backendBaseUrl}/marketplace/my/lots?${params.toString()}`
+          : viewTab === "my-deals"
+            ? `${backendBaseUrl}/marketplace/my/deals?${params.toString()}`
+            : `${backendBaseUrl}/marketplace/lots?${params.toString()}`;
+
+      const headers: Record<string, string> = {};
+      if ((viewTab === "my-lots" || viewTab === "my-deals") && user?.accessToken) {
+        headers.Authorization = `Bearer ${user.accessToken}`;
+      }
+      const response = await fetch(endpoint, { headers });
+      const data = (await response.json()) as any;
+      if (!response.ok || !data?.ok) {
+        setLotsError(data?.error ?? "Не удалось загрузить лоты");
+        return;
+      }
+
+      if (viewTab === "my-deals") {
+        const deals = (data?.page?.deals ?? []) as Array<{
+          thread_id: string;
+          status: Thread["status"];
+          role: "buyer" | "seller";
+          lot: {
+            id: string;
+            name: string;
+            category: LotCategory;
+            kind: LotKind;
+            description: string;
+            price: number;
+            rating: number;
+            seller_id: string;
+            seller_name: string;
+            img: string;
+            created_at: number;
+          };
+        }>;
+        const nextDealMeta: Record<string, DealMeta> = {};
+        const nextLots = deals.map((d) => {
+          nextDealMeta[d.lot.id] = { threadId: d.thread_id, status: d.status, role: d.role };
+          return {
+            id: d.lot.id,
+            name: d.lot.name,
+            category: d.lot.category,
+            kind: d.lot.kind,
+            description: d.lot.description,
+            price: d.lot.price,
+            rating: d.lot.rating,
+            sellerId: d.lot.seller_id,
+            sellerName: d.lot.seller_name,
+            img: d.lot.img,
+            createdAt: d.lot.created_at,
+          };
+        });
+        setDealMetaByLotId(nextDealMeta);
+        setLots(nextLots);
+        setTotal(Number(data?.page?.total ?? nextLots.length));
+      } else {
+        const pageLots = (data?.page?.lots ?? []) as Array<{
+          id: string;
+          name: string;
+          category: LotCategory;
+          kind: LotKind;
+          description: string;
+          price: number;
+          rating: number;
+          seller_id: string;
+          seller_name: string;
+          img: string;
+          created_at: number;
+        }>;
+        setDealMetaByLotId({});
+        setLots(
+          pageLots.map((x) => ({
+            id: x.id,
+            name: x.name,
+            category: x.category,
+            kind: x.kind,
+            description: x.description,
+            price: x.price,
+            rating: x.rating,
+            sellerId: x.seller_id,
+            sellerName: x.seller_name,
+            img: x.img,
+            createdAt: x.created_at,
+          }))
+        );
+        setTotal(Number(data?.page?.total ?? pageLots.length));
+      }
+    } catch {
+      setLotsError("Сервер недоступен");
+    } finally {
+      setLoadingLots(false);
+    }
+  }, [category, limit, offset, query, sort, user?.accessToken, viewTab]);
+
+  const loadThread = useCallback(async (lotId: string, options?: { silent?: boolean }) => {
+    if (!user?.accessToken) {
+      setActiveThread(null);
+      return;
+    }
+    if (!options?.silent) {
+      setThreadBusy(true);
+    }
+    try {
+      const response = await fetch(`${backendBaseUrl}/marketplace/lots/${lotId}/thread`, {
+        headers: { Authorization: `Bearer ${user.accessToken}` },
+      });
+      const data = (await response.json()) as {
+        ok?: boolean;
+        thread?: {
+          id: string;
+          lot_id: string;
+          buyer_id: string;
+          seller_id: string;
+          status: Thread["status"];
+          messages: Array<{ id: string; from_id: string; text: string; ts: number }>;
+        } | null;
+      };
+      if (!response.ok || !data?.ok) {
+        setActiveThread(null);
+        return;
+      }
+      if (!data.thread) {
+        setActiveThread(null);
+        return;
+      }
+      setActiveThread({
+        id: data.thread.id,
+        lotId: data.thread.lot_id,
+        buyerId: data.thread.buyer_id,
+        sellerId: data.thread.seller_id,
+        status: data.thread.status,
+        messages: data.thread.messages.map((m) => ({
+          id: m.id,
+          fromId: m.from_id,
+          text: m.text,
+          ts: m.ts,
+        })),
+      });
+      setThreadLastSyncAt(Date.now());
+    } finally {
+      if (!options?.silent) {
+        setThreadBusy(false);
+      }
+    }
+  }, [user?.accessToken]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void loadLots();
+    }, 180);
+    return () => window.clearTimeout(timer);
+  }, [loadLots]);
+
+  useEffect(() => {
+    if (!selected?.id) return;
+    void loadThread(selected.id);
+  }, [selected?.id, loadThread]);
+
+  useEffect(() => {
+    if (!selected?.id || !activeThread || !user?.accessToken) return;
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      void loadThread(selected.id, { silent: true });
+    }, 4000);
+    return () => window.clearInterval(intervalId);
+  }, [activeThread, loadThread, selected?.id, user?.accessToken]);
+
   const visible = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return lots.filter((it) => {
-      const catOk =
-        category === "all"
-          ? true
-          : category === "mine"
-            ? !!user && it.sellerId === user.id
-            : it.category === category;
-
-      const hay = (it.name + " " + it.description + " " + it.sellerName).toLowerCase();
-      const qOk = !q ? true : hay.includes(q);
-
-      return catOk && qOk;
-    });
-  }, [lots, category, query, user]);
+    return lots;
+  }, [lots]);
 
   const requestDeal = () => {
-    if (!selected || !user) return;
+    if (!selected || !user?.accessToken) return;
     if (selected.sellerId === user.id) return;
 
-    setThreads((prev) => {
-      if (prev[selected.id]) return prev;
-      const now = Date.now();
-      const newThread: Thread = {
-        lotId: selected.id,
-        buyerId: user.id,
-        sellerId: selected.sellerId,
-        status: "requested",
-        messages: [
-          {
-            id: `m-${now}`,
-            fromId: user.id,
-            text: "Запрос сделки создан (sim). Обсудим детали здесь.",
-            ts: now,
-          },
-        ],
-      };
-      return { ...prev, [selected.id]: newThread };
-    });
+    void (async () => {
+      await fetch(`${backendBaseUrl}/marketplace/lots/${selected.id}/request`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${user.accessToken}`,
+        },
+      });
+      await loadThread(selected.id);
+    })();
   };
 
   const sendMessage = () => {
-    if (!selected || !user) return;
-    const thread = threads[selected.id];
-    if (!thread) return;
+    if (!selected || !user?.accessToken || !activeThread) return;
 
     const text = chatText.trim();
     if (!text) return;
 
-    const now = Date.now();
-    setThreads((prev) => {
-      const t = prev[selected.id];
-      if (!t) return prev;
-      return {
-        ...prev,
-        [selected.id]: {
-          ...t,
-          status:
-            user.id === t.sellerId
-              ? "in_progress"
-              : t.status === "requested"
-                ? "requested"
-                : t.status,
-          messages: [
-            ...t.messages,
-            { id: `m-${now}-${Math.random().toString(16).slice(2)}`, fromId: user.id, text, ts: now },
-          ],
-        },
-      };
-    });
-    setChatText("");
+    void (async () => {
+      setChatSending(true);
+      try {
+        await fetch(`${backendBaseUrl}/marketplace/lots/${selected.id}/messages`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${user.accessToken}`,
+          },
+          body: JSON.stringify({ text }),
+        });
+        setChatText("");
+        await loadThread(selected.id);
+      } finally {
+        setChatSending(false);
+      }
+    })();
   };
 
   const sendDemoSellerReply = () => {
-    if (!selected || !user) return;
-    const thread = threads[selected.id];
-    if (!thread) return;
-    if (user.id !== thread.sellerId) return;
-
-    const now = Date.now();
-    setThreads((prev) => {
-      const t = prev[selected.id];
-      if (!t) return prev;
-      return {
-        ...prev,
-        [selected.id]: {
-          ...t,
-          status: "in_progress",
-          messages: [
-            ...t.messages,
-            {
-              id: `m-${now}-${Math.random().toString(16).slice(2)}`,
-              fromId: user.id,
-              text: "Ок, детали приняты. Делаем “в рамках симуляции”.",
-              ts: now,
-            },
-          ],
-        },
-      };
-    });
+    if (!selected || !user || !activeThread || user.id !== activeThread.sellerId) return;
+    setChatText("Ок, детали приняты. Начинаем выполнение.");
+    setTimeout(sendMessage, 0);
   };
 
-  const submitCreateLot = () => {
-    if (!user) {
+  const submitCreateLot = async () => {
+    if (!user?.accessToken) {
       router.push("/auth/login");
       return;
     }
     const name = draft.name.trim();
     const desc = draft.description.trim();
     const price = Number(draft.price);
-    if (!name || !desc || !Number.isFinite(price) || price <= 0) return;
+    if (!name || !desc || !Number.isFinite(price) || price <= 0) {
+      setCreateError("Заполни название, описание и корректную цену");
+      return;
+    }
 
-    const now = Date.now();
-    const newLot: Lot = {
-      id: `lot-${now}-${Math.random().toString(16).slice(2)}`,
-      name,
-      category: draft.category,
-      kind: draft.kind,
-      description: desc,
-      price,
-      rating: 0,
-      sellerId: user.id,
-      sellerName: user.name,
-      img: draft.img,
-      createdAt: now,
-    };
+    setCreateError(null);
+    const response = await fetch(`${backendBaseUrl}/marketplace/lots`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${user.accessToken}`,
+      },
+      body: JSON.stringify({
+        name,
+        category: draft.category,
+        kind: draft.kind,
+        description: desc,
+        price,
+        img: draft.img,
+      }),
+    });
+    const data = (await response.json()) as { ok?: boolean; error?: string };
+    if (!response.ok || !data?.ok) {
+      setCreateError(data?.error ?? "Не удалось создать лот");
+      return;
+    }
 
-    setLots((prev) => [newLot, ...prev]);
+    await loadLots();
     setCreateOpen(false);
     setCategory("mine");
-    setSelected(newLot);
     setDraft({
       name: "",
       category: "tools",
@@ -440,55 +546,19 @@ export default function MarketplacePage() {
     });
   };
 
+  useEffect(() => {
+    setOffset(0);
+  }, [viewTab, category, query, sort]);
+
   return (
     <div className="relative min-h-screen overflow-hidden">
-      <header className="sticky top-0 z-40 border-b border-white/10 bg-[#05060a]/70 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3">
-          <div className="flex items-center gap-3">
-            <div className="relative h-9 w-9 overflow-hidden rounded-xl border border-cyan-400/20 bg-cyan-500/10">
-              <Image src="/zd-logo.svg" alt="Zero Day" fill sizes="36px" className="object-cover" priority />
-            </div>
-            <div>
-              <div className="text-sm font-semibold text-zinc-50">Zero Day</div>
-              <div className="text-xs text-cyan-200/80">Marketplace</div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <nav className="flex items-center gap-2">
-            <Link
-              href="/"
-              className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-200 hover:bg-white/10"
-            >
-              Лендинг
-            </Link>
-            <Link
-              href="/account"
-              className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-200 hover:bg-white/10"
-            >
-              Личный кабинет
-            </Link>
-            </nav>
-
-            {authorized ? (
-              <button
-                onClick={() => signOut({ callbackUrl: "/marketplace" })}
-                className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-200 hover:bg-white/10"
-                aria-label="Выйти"
-              >
-                {user?.name}
-              </button>
-            ) : (
-              <button
-                onClick={() => router.push("/auth/login")}
-                className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-200 hover:bg-white/10"
-              >
-                Войти
-              </button>
-            )}
-          </div>
-        </div>
-      </header>
+      <AppHeader
+        subtitle="Marketplace"
+        nav={[
+          { href: "/", label: "Главная" },
+          { href: "/account", label: "Личный кабинет" },
+        ]}
+      />
 
       <main className="relative z-10 mx-auto max-w-7xl px-4 py-10">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -536,6 +606,43 @@ export default function MarketplacePage() {
               ))}
             </div>
 
+            <div className="mt-4 text-xs uppercase tracking-widest text-cyan-200/70">Сортировка</div>
+            <div className="mt-3">
+              <Select
+                value={sort}
+                onChange={(value) => setSort(value as SortOption)}
+                options={sortOptions}
+              />
+            </div>
+
+            <div className="mt-4 text-xs uppercase tracking-widest text-cyan-200/70">Раздел</div>
+            <div className="mt-3 grid grid-cols-1 gap-2">
+              {[
+                { key: "catalog", label: "Каталог" },
+                { key: "my-lots", label: "Мои лоты" },
+                { key: "my-deals", label: "Мои сделки" },
+              ].map((x) => (
+                <button
+                  key={x.key}
+                  onClick={() => {
+                    if (!authorized && x.key !== "catalog") {
+                      router.push("/auth/login");
+                      return;
+                    }
+                    setViewTab(x.key as ViewTab);
+                  }}
+                  className={[
+                    "rounded-xl border px-3 py-2 text-sm transition text-left",
+                    viewTab === x.key
+                      ? "border-cyan-400/35 bg-cyan-500/15 text-cyan-100"
+                      : "border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10",
+                  ].join(" ")}
+                >
+                  {x.label}
+                </button>
+              ))}
+            </div>
+
             {authorized ? (
               <button
                 onClick={() => setCreateOpen(true)}
@@ -559,7 +666,9 @@ export default function MarketplacePage() {
               <div>
                 <div className="text-xs uppercase tracking-widest text-cyan-200/70">Торговая площадка</div>
                 <div className="mt-2 text-2xl font-semibold text-zinc-50">
-                  {category === "all"
+                  {viewTab === "my-deals"
+                    ? "Мои сделки"
+                    : category === "all"
                     ? "Каталог"
                     : category === "mine"
                       ? authorized
@@ -572,17 +681,32 @@ export default function MarketplacePage() {
                           : "Zero-Day"}
                 </div>
                 <p className="mt-2 text-base text-zinc-300">
-                  {visible.length} позиций · рейтинг/отзывы (плейсхолдеры) · сделка: запрос → чат (sim)
+                  {visible.length} из {total} · backend API · серверный поиск и фильтры
                 </p>
               </div>
               <div className="flex flex-wrap gap-2 text-xs text-zinc-400">
                 <span>Фильтр по категории</span>
                 <span>·</span>
                 <span>Поиск по названию/описанию/продавцу</span>
+                <span>·</span>
+                <span>Сортировка на сервере</span>
               </div>
             </div>
 
             <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {loadingLots ? (
+                Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={`skeleton-${i}`} />)
+              ) : null}
+              {lotsError ? (
+                <div className="col-span-full rounded-2xl border border-red-400/30 bg-red-500/10 p-4 text-sm text-red-100">
+                  {lotsError}
+                </div>
+              ) : null}
+              {!loadingLots && !lotsError && visible.length === 0 ? (
+                <div className="col-span-full rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-zinc-300">
+                  Лоты не найдены. Создай первый.
+                </div>
+              ) : null}
               {visible.map((it, idx) => (
                 <motion.div
                   key={it.id}
@@ -595,14 +719,14 @@ export default function MarketplacePage() {
                     ease: "easeOut",
                   }}
                 >
-                  <GlassCard className="h-full p-6" glow={it.category === "zero-day" ? "emerald" : it.category === "tools" ? "cyan" : "blue"}>
+                  <GlassCard className="h-full p-5" glow={it.category === "zero-day" ? "emerald" : it.category === "tools" ? "cyan" : "blue"}>
                     <div className="relative h-44 overflow-hidden rounded-xl border border-white/10 bg-black/20">
                       <Image src={it.img} alt={it.name} fill className="object-cover" sizes="320px" />
                       <div className="absolute inset-0 bg-gradient-to-t from-[#05060a] via-transparent to-transparent opacity-70" />
                     </div>
 
-                    <div className="mt-4 text-lg font-semibold text-zinc-50">{it.name}</div>
-                    <div className="mt-3 text-base leading-relaxed text-zinc-300">{it.description}</div>
+                    <div className="mt-4 line-clamp-1 text-lg font-semibold text-zinc-50">{it.name}</div>
+                    <div className="mt-3 text-sm leading-relaxed text-zinc-300">{it.description}</div>
 
                     <div className="mt-3 flex items-center justify-between gap-3">
                       <div className="text-sm uppercase tracking-widest text-cyan-200/70">
@@ -612,8 +736,13 @@ export default function MarketplacePage() {
                             ? "Tool"
                             : "Script"}
                       </div>
-                      <div className="text-base font-semibold text-zinc-50">{it.price} CryptoCoin</div>
+                      <div className="text-sm font-semibold text-zinc-50">{it.price} CryptoCoin</div>
                     </div>
+                    {dealMetaByLotId[it.id] ? (
+                      <div className="mt-2 text-xs text-cyan-200/80">
+                        Сделка: {statusLabel(dealMetaByLotId[it.id].status)} · роль: {dealMetaByLotId[it.id].role}
+                      </div>
+                    ) : null}
 
                     <div className="mt-2">
                       <Stars rating={it.rating} />
@@ -631,6 +760,25 @@ export default function MarketplacePage() {
                   </GlassCard>
                 </motion.div>
               ))}
+            </div>
+            <div className="mt-4 flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 p-3 text-sm">
+              <button
+                onClick={() => setOffset((prev) => Math.max(0, prev - limit))}
+                disabled={offset <= 0}
+                className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-zinc-200 disabled:opacity-40"
+              >
+                Назад
+              </button>
+              <div className="text-zinc-300">
+                Страница {Math.floor(offset / limit) + 1} / {Math.max(1, Math.ceil(total / limit))}
+              </div>
+              <button
+                onClick={() => setOffset((prev) => (prev + limit < total ? prev + limit : prev))}
+                disabled={offset + limit >= total}
+                className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-zinc-200 disabled:opacity-40"
+              >
+                Далее
+              </button>
             </div>
           </div>
         </div>
@@ -674,7 +822,7 @@ export default function MarketplacePage() {
                       : "Скрипт"}
                 </span>
                 <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-zinc-200">
-                  Статус: {statusLabel}
+                  Статус: {statusLabel(activeThread?.status)}
                 </span>
               </div>
             </div>
@@ -720,9 +868,17 @@ export default function MarketplacePage() {
 
               <div className="space-y-3">
                 <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                  <div className="text-xs uppercase tracking-widest text-cyan-200/70">
-                    Сделка и чат
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-xs uppercase tracking-widest text-cyan-200/70">
+                      Сделка и чат
+                    </div>
+                    <div className="text-[11px] text-zinc-400">
+                      {threadLastSyncAt ? `Обновлено ${new Date(threadLastSyncAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "Синхронизация..."}
+                    </div>
                   </div>
+                  {threadBusy ? (
+                    <div className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-zinc-300">Загружаем историю сделки...</div>
+                  ) : null}
 
                   {!authorized ? (
                     <div className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-zinc-300">
@@ -732,7 +888,7 @@ export default function MarketplacePage() {
                           onClick={() => router.push("/auth/login")}
                           className="w-full rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-4 py-3 text-sm font-semibold text-zinc-950 hover:brightness-110"
                         >
-                          Войти (sim)
+                          Войти
                         </button>
                       </div>
                     </div>
@@ -747,7 +903,7 @@ export default function MarketplacePage() {
                         </div>
                       </div>
 
-                      <div className="mt-3 max-h-56 overflow-auto rounded-xl border border-white/10 bg-black/20 p-3">
+                      <div className="mt-3 max-h-72 overflow-auto rounded-xl border border-white/10 bg-black/20 p-3">
                         <div className="space-y-2">
                           {activeThread.messages.map((m) => {
                             const mine = m.fromId === user.id;
@@ -778,17 +934,18 @@ export default function MarketplacePage() {
                           <input
                             value={chatText}
                             onChange={(e) => setChatText(e.target.value)}
-                            placeholder="Сообщение (sim)…"
+                            placeholder="Сообщение…"
                             className="flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-zinc-100 placeholder:text-zinc-500 outline-none focus:border-cyan-400/30"
                             onKeyDown={(e) => {
-                              if (e.key === "Enter") sendMessage();
+                              if (e.key === "Enter" && !chatSending) sendMessage();
                             }}
                           />
                           <button
                             onClick={sendMessage}
-                            className="rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-4 py-3 text-sm font-semibold text-zinc-950 hover:brightness-110"
+                            disabled={chatSending}
+                            className="rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-4 py-3 text-sm font-semibold text-zinc-950 hover:brightness-110 disabled:opacity-60"
                           >
-                            Отправить
+                            {chatSending ? "Отправка..." : "Отправить"}
                           </button>
                         </div>
                       ) : (
@@ -814,13 +971,13 @@ export default function MarketplacePage() {
                     </div>
                   ) : (
                     <div className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-zinc-300">
-                      Запрос сделки создаст “escrow” и откроет чат для обсуждения деталей между покупателем и продавцом.
+                      Запрос сделки откроет чат для обсуждения деталей между покупателем и продавцом.
                       <div className="mt-3">
                         <button
                           onClick={requestDeal}
                           className="w-full rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-4 py-3 text-sm font-semibold text-zinc-950 hover:brightness-110"
                         >
-                          Запросить сделку (sim)
+                          Запросить сделку
                         </button>
                       </div>
                     </div>
@@ -835,13 +992,16 @@ export default function MarketplacePage() {
       {/* Create lot modal */}
       <Modal
         open={createOpen}
-        title="Создать лот (sim)"
+        title="Создать лот"
         onClose={() => setCreateOpen(false)}
       >
         <div className="space-y-4">
           <div className="rounded-xl border border-white/10 bg-black/20 p-4 text-sm text-zinc-300">
             Вы станете продавцом. Покупатель сможет отправить запрос и общаться в чате сделки.
           </div>
+          {createError ? (
+            <div className="rounded-xl border border-red-400/30 bg-red-500/10 p-3 text-sm text-red-100">{createError}</div>
+          ) : null}
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
@@ -872,10 +1032,10 @@ export default function MarketplacePage() {
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
               <div className="text-xs uppercase tracking-widest text-cyan-200/70">Категория</div>
-              <select
+              <Select
                 value={draft.category}
-                onChange={(e) => {
-                  const category = e.target.value as LotCategory;
+                onChange={(value) => {
+                  const category = value as LotCategory;
                   const imgByCat: Record<LotCategory, string> = {
                     tools: "/zd-web-builder.svg",
                     scripts: "/zd-hero-screen.svg",
@@ -883,26 +1043,19 @@ export default function MarketplacePage() {
                   };
                   setDraft((d) => ({ ...d, category, img: imgByCat[category] }));
                 }}
-                className="mt-2 w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-zinc-100 outline-none focus:border-cyan-400/30"
-              >
-                <option value="tools">Инструменты</option>
-                <option value="scripts">Скрипты</option>
-                <option value="zero-day">Zero-Day</option>
-              </select>
+                options={lotCategoryOptions}
+                className="mt-2"
+              />
             </div>
 
             <div>
               <div className="text-xs uppercase tracking-widest text-cyan-200/70">Тип</div>
-              <select
+              <Select
                 value={draft.kind}
-                onChange={(e) => setDraft((d) => ({ ...d, kind: e.target.value as LotKind }))}
-                className="mt-2 w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-zinc-100 outline-none focus:border-cyan-400/30"
-              >
-                <option value="service">Услуга</option>
-                <option value="script">Скрипт</option>
-                <option value="program">Программа</option>
-                <option value="data">Информация</option>
-              </select>
+                onChange={(value) => setDraft((d) => ({ ...d, kind: value as LotKind }))}
+                options={lotKindOptions}
+                className="mt-2"
+              />
             </div>
           </div>
 
@@ -932,7 +1085,7 @@ export default function MarketplacePage() {
             onClick={submitCreateLot}
             className="w-full rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-4 py-3 text-sm font-semibold text-zinc-950 hover:brightness-110"
           >
-            Создать лот (sim)
+            Создать лот
           </button>
         </div>
       </Modal>

@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import ZdSessionProvider from "./session-provider";
+import InteractiveBackground from "@/components/ui/InteractiveBackground";
+import DialogProvider from "@/components/ui/DialogProvider";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -19,7 +21,10 @@ export default function RootLayout({
   return (
     <html lang="ru">
       <body className={`${inter.className} antialiased`}>
-        <ZdSessionProvider>{children}</ZdSessionProvider>
+        <InteractiveBackground />
+        <ZdSessionProvider>
+          <DialogProvider>{children}</DialogProvider>
+        </ZdSessionProvider>
       </body>
     </html>
   );

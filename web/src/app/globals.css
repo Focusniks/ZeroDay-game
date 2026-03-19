@@ -9,16 +9,46 @@ body {
 
 html {
   color-scheme: dark;
-  font-size: 20px;
+  font-size: 18px;
 }
 
 body {
-  /* Тёмная “кибер” тема лендинга */
-  background: radial-gradient(1200px 700px at 20% 10%, rgba(34, 211, 238, 0.22), transparent 60%),
-    radial-gradient(900px 600px at 85% 20%, rgba(59, 130, 246, 0.18), transparent 55%),
-    radial-gradient(700px 500px at 50% 90%, rgba(20, 184, 166, 0.14), transparent 60%),
-    #05060a;
+  background: #05060a;
   color: rgb(228, 236, 255);
+}
+
+.zd-bg-base {
+  background: linear-gradient(180deg, rgba(5, 6, 10, 0.92) 0%, rgba(5, 6, 10, 0.98) 100%);
+}
+
+.zd-bg-aurora {
+  background:
+    radial-gradient(900px 520px at 14% 15%, rgba(34, 211, 238, 0.2), transparent 60%),
+    radial-gradient(700px 460px at 85% 12%, rgba(59, 130, 246, 0.16), transparent 58%),
+    radial-gradient(760px 520px at 45% 88%, rgba(16, 185, 129, 0.12), transparent 60%);
+  animation: zd-aurora-shift 14s ease-in-out infinite alternate;
+}
+
+.zd-bg-cells {
+  opacity: 0.9;
+}
+
+.zd-bg-grid {
+  opacity: 0.24;
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.06) 1px, transparent 1px),
+    repeating-linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, 0.06) 0px,
+      rgba(255, 255, 255, 0.02) 1px,
+      rgba(0, 0, 0, 0) 3px
+    );
+  background-size:
+    42px 42px,
+    42px 42px,
+    100% 4px;
+  animation: zd-grid-pan 24s linear infinite;
 }
 
 /* Scrollbar styling to match the cyber theme */
@@ -53,24 +83,6 @@ body {
 
 .zd-section {
   position: relative;
-}
-.zd-section::before,
-.zd-section::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  pointer-events: none;
-}
-.zd-section::before {
-  top: -10px;
-  height: 56px;
-  background: linear-gradient(to bottom, rgba(5, 6, 10, 0), rgba(5, 6, 10, 0.35));
-}
-.zd-section::after {
-  bottom: -10px;
-  height: 56px;
-  background: linear-gradient(to top, rgba(5, 6, 10, 0), rgba(5, 6, 10, 0.35));
 }
 
 @layer utilities {
@@ -140,5 +152,31 @@ body {
   }
   100% {
     clip-path: polygon(0 45%, 100% 35%, 100% 100%, 0 100%);
+  }
+}
+
+@keyframes zd-aurora-shift {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+    filter: hue-rotate(0deg);
+  }
+  100% {
+    transform: translate3d(0, -1.2%, 0) scale(1.03);
+    filter: hue-rotate(20deg);
+  }
+}
+
+@keyframes zd-grid-pan {
+  0% {
+    background-position:
+      0 0,
+      0 0,
+      0 0;
+  }
+  100% {
+    background-position:
+      42px 0,
+      0 42px,
+      0 8px;
   }
 }

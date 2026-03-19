@@ -9,6 +9,8 @@ declare module "next-auth" {
       name?: string | null;
       email?: string | null;
       createdAt?: string;
+      accessToken?: string;
+      reputation?: string;
     };
   }
 
@@ -18,14 +20,19 @@ declare module "next-auth" {
     name?: string | null;
     email?: string | null;
     createdAt?: string | Date;
+    accessToken?: string;
+    reputation?: string;
   }
 }
 
 declare module "next-auth/jwt" {
   interface JWT {
     id?: string;
+    email?: string;
     hatRank?: string;
     createdAt?: string;
+    accessToken?: string;
+    reputation?: string;
   }
 }
 

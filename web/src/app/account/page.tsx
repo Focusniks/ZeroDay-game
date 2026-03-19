@@ -3,10 +3,12 @@
 import Image from "next/image";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
-import { useMemo, useState, type ReactNode } from "react";
-import { signOut, useSession } from "next-auth/react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useSearchParams } from "next/navigation";
+import { useSession } from "next-auth/react";
+import AppHeader from "@/components/ui/AppHeader";
 
-type TabKey = "overview" | "inventory" | "wallet" | "settings";
+type TabKey = "overview" | "inventory" | "wallet" | "settings" | "notifications";
 
 function GlassCard({
   className,
@@ -73,6 +75,7 @@ function TabButton({
 export default function AccountPage() {
   const [tab, setTab] = useState<TabKey>("overview");
   const { data: session, status } = useSession();
+  const searchParams = useSearchParams();
 
   // Settings form state (client-only UI)
   const [pwdCurrent, setPwdCurrent] = useState("");
@@ -158,6 +161,13 @@ export default function AccountPage() {
     [session?.user?.hatRank, session?.user?.name, session?.user?.createdAt]
   );
 
+  useEffect(() => {
+    const queryTab = searchParams?.get("tab");
+    if (!queryTab) return;
+    if (queryTab === "settings") setTab("settings");
+    if (queryTab === "notifications") setTab("notifications");
+  }, [searchParams]);
+
   if (status === "loading") {
     return (
       <div className="relative min-h-screen">
@@ -197,13 +207,8 @@ export default function AccountPage() {
               >
                 Войти
               </Link>
-              <Link
-                href="/auth/register"
-                className="rounded-xl border border-white/10 bg-white/5 px-6 py-3 text-base font-semibold text-zinc-200 hover:bg-white/10 text-center"
-              >
-                Регистрация
-              </Link>
             </div>
+            <div className="mt-3 text-sm text-zinc-400">Создание новых аккаунтов через сайт отключено.</div>
           </div>
         </main>
       </div>
@@ -213,34 +218,13 @@ export default function AccountPage() {
   return (
     <div className="relative min-h-screen">
 
-      <header className="sticky top-0 z-40 border-b border-white/10 bg-[#05060a]/70 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3">
-          <div className="flex items-center gap-3">
-            <div className="relative h-9 w-9 overflow-hidden rounded-xl border border-cyan-400/20 bg-cyan-500/10">
-              <Image src="/zd-logo.svg" alt="Zero Day" fill sizes="36px" className="object-cover" priority />
-            </div>
-            <div>
-              <div className="text-sm font-semibold text-zinc-50">Zero Day</div>
-              <div className="text-xs text-cyan-200/80">Exploit Network</div>
-            </div>
-          </div>
-
-          <nav className="flex items-center gap-2">
-            <Link
-              href="/"
-              className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-200 hover:bg-white/10"
-            >
-              Лендинг
-            </Link>
-            <Link
-              href="/marketplace"
-              className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-200 hover:bg-white/10"
-            >
-              Торговая площадка
-            </Link>
-          </nav>
-        </div>
-      </header>
+      <AppHeader
+        subtitle="Exploit Network"
+        nav={[
+          { href: "/", label: "Главная" },
+          { href: "/marketplace", label: "Торговая площадка" },
+        ]}
+      />
 
       <main className="relative z-10 mx-auto max-w-7xl px-4 py-10">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -317,6 +301,9 @@ export default function AccountPage() {
                 </TabButton>
                 <TabButton active={tab === "settings"} onClick={() => setTab("settings")}>
                   Настройки
+                </TabButton>
+                <TabButton active={tab === "notifications"} onClick={() => setTab("notifications")}>
+                  Уведомления
                 </TabButton>
               </div>
             </div>
@@ -464,7 +451,7 @@ export default function AccountPage() {
                       <div className="mt-2 text-lg font-semibold text-zinc-50">Смена пароля</div>
 
                       <p className="mt-3 text-sm text-zinc-300">
-                        Данные аккаунта обновляются в SQLite. Старый пароль подтверждается перед заменой.
+                        Пароль обновляется через backend API. Старый пароль подтверждается перед заменой.
                       </p>
 
                       <div className="mt-5 space-y-4">
@@ -522,6 +509,32 @@ export default function AccountPage() {
                         >
                           {pwdBusy ? "Сохраняем…" : "Обновить пароль"}
                         </button>
+                      </div>
+                    </GlassCard>
+                  </motion.div>
+                ) : null}
+
+                {tab === "notifications" ? (
+                  <motion.div
+                    key="notifications"
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    transition={{ duration: 0.35, ease: "easeOut" }}
+                    className="space-y-4"
+                  >
+                    <GlassCard className="p-5" glow="cyan">
+                      <div className="text-xs uppercase tracking-widest text-cyan-200/70">Уведомления</div>
+                      <div className="mt-4 space-y-3">
+                        {[
+                          "Сделка на Marketplace обновлена: статус changed to in_progress.",
+                          "Пароль аккаунта успешно обновлён.",
+                          "Еженедельный CTF стартует через 3 часа.",
+                        ].map((item) => (
+                          <div key={item} className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-zinc-200">
+                            {item}
+                          </div>
+                        ))}
                       </div>
                     </GlassCard>
                   </motion.div>

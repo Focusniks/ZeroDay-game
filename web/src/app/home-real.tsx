@@ -512,31 +512,9 @@ export default function HomeReal() {
 
   return (
     <div className="relative min-h-screen overflow-hidden">
-      <motion.div
-        aria-hidden="true"
-        className="absolute inset-0 opacity-60"
-        style={{
-          background:
-            "radial-gradient(900px 520px at 15% 20%, rgba(34,211,238,0.30), transparent 55%), radial-gradient(700px 520px at 85% 10%, rgba(59,130,246,0.24), transparent 52%), radial-gradient(800px 600px at 50% 90%, rgba(16,185,129,0.18), transparent 55%)",
-        }}
-        animate={{ filter: ["hue-rotate(0deg)", "hue-rotate(18deg)", "hue-rotate(0deg)"] }}
-        transition={{ duration: 10, repeat: Infinity, ease: "linear" }}
-      />
-
-      {/* Scanlines overlay */}
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 opacity-20"
-        style={{
-          backgroundImage:
-            "repeating-linear-gradient(to bottom, rgba(255,255,255,0.08) 0px, rgba(255,255,255,0.02) 1px, rgba(0,0,0,0) 3px)",
-          mixBlendMode: "overlay",
-        }}
-      />
-
       <header className="sticky top-0 z-40 border-b border-white/10 bg-[#05060a]/70 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3">
-          <div className="flex items-center gap-3">
+          <Link href="/" className="flex items-center gap-3 rounded-xl p-1 hover:bg-white/5">
             <div className="relative h-9 w-9 overflow-hidden rounded-xl border border-cyan-400/20 bg-cyan-500/10">
               <Image
                 src="/zd-logo.svg"
@@ -551,7 +529,7 @@ export default function HomeReal() {
               <div className="text-sm font-semibold text-zinc-50">Zero Day</div>
               <div className="text-xs text-cyan-200/80">Exploit Network</div>
             </div>
-          </div>
+          </Link>
 
           <nav className="hidden items-center gap-2 md:flex">
             <button
