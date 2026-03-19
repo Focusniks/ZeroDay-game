@@ -1,0 +1,15 @@
+{
+  "name": "zeroday",
+  "private": true,
+  "version": "0.1.0",
+  "description": "ZeroDay — backend + Tauri client (single dev command)",
+  "scripts": {
+    "dev": "concurrently -k -n backend,tauri -c blue,magenta \"npm run dev:backend\" \"npm run dev:tauri\"",
+    "dev:backend": "node scripts/run-backend-dev.js",
+    "dev:tauri": "npm run tauri:dev --prefix client",
+    "install:all": "npm install --prefix client && npm install"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

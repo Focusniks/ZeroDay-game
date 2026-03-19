@@ -1,0 +1,30 @@
+# OS / tooling
+.DS_Store
+Thumbs.db
+*.log
+
+# Environments and local secrets
+**/.env
+**/.env.local
+**/.env.*.local
+
+# Rust / Cargo
+**/target
+**/*.rs.bk
+
+# Node / frontend
+**/node_modules
+**/dist
+**/.vite
+**/.turbo
+
+# SQLx (optional offline data)
+**/sqlx-data.json
+
+# Tauri generated
+**/src-tauri/gen
+
+# IDE
+.vscode/
+.idea/
+

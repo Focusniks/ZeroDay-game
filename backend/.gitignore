@@ -1,0 +1,7 @@
+/target
+/sqlx-data.json
+/.env
+/.env.local
+/.env.*.local
+*.log
+

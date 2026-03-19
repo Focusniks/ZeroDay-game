@@ -1,0 +1,27 @@
+[package]
+name = "zeroday-client"
+version = "0.1.0"
+description = "ZeroDay desktop client"
+authors = ["you"]
+edition = "2021"
+
+[lib]
+name = "zeroday_client"
+path = "src/lib.rs"
+
+[[bin]]
+name = "zeroday-client"
+path = "src/main.rs"
+
+[build-dependencies]
+base64 = "0.22"
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = [] }
+
+[package.metadata.tauri]
+windows = []
+

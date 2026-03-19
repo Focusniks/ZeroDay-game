@@ -1,0 +1,14 @@
+[[permission]]
+identifier = "allow-get-game-config"
+description = "Read zeroday_game.json next to the game executable."
+commands.allow = ["get_game_config"]
+
+[[permission]]
+identifier = "allow-get-game-config-path"
+description = "Expose path to zeroday_game.json for debugging."
+commands.allow = ["get_game_config_path"]
+
+[[permission]]
+identifier = "allow-save-game-config"
+description = "Write zeroday_game.json next to the game executable."
+commands.allow = ["save_game_config"]

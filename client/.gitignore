@@ -1,0 +1,14 @@
+/node_modules
+/dist
+/.env
+/.env.local
+/.env.*.local
+/.vite
+
+# Tauri
+/src-tauri/target
+/src-tauri/gen
+
+# Logs
+*.log
+
