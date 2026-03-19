@@ -2,7 +2,9 @@ use actix_cors::Cors;
 use actix_web::{middleware::Logger, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use dotenvy::dotenv;
 use log::info;
+use serde::{Deserialize, Serialize};
 use sqlx::migrate::Migrator;
+use sqlx::{Postgres, QueryBuilder};
 use sqlx::PgPool;
 use std::env;
 use std::path::Path;
@@ -318,7 +320,7 @@ fn sanitize_marketplace_query(
 async fn list_lots_http(state: web::Data<AppState>, query: web::Query<MarketplaceQuery>) -> impl Responder {
     let (q, category, sort, limit, offset) = sanitize_marketplace_query(&query);
 
-    let mut sql = QueryBuilder::new(
+    let mut sql = QueryBuilder::<Postgres>::new(
         r#"
         SELECT
           l.id, l.name, l.category, l.kind, l.description, l.price, CAST(l.rating AS FLOAT8) AS rating,
@@ -354,7 +356,7 @@ async fn list_lots_http(state: web::Data<AppState>, query: web::Query<Marketplac
 
     let rows = sql.build_query_as::<MarketplaceLotRow>().fetch_all(&state.pool).await;
 
-    let mut count_sql = QueryBuilder::new(
+    let mut count_sql = QueryBuilder::<Postgres>::new(
         r#"
         SELECT COUNT(*)
         FROM marketplace_lots l
@@ -423,7 +425,7 @@ async fn my_lots_http(
     };
     let (q, category, sort, limit, offset) = sanitize_marketplace_query(&query);
 
-    let mut sql = QueryBuilder::new(
+    let mut sql = QueryBuilder::<Postgres>::new(
         r#"
         SELECT
           l.id, l.name, l.category, l.kind, l.description, l.price, CAST(l.rating AS FLOAT8) AS rating,
@@ -458,7 +460,7 @@ async fn my_lots_http(
 
     let rows = sql.build_query_as::<MarketplaceLotRow>().fetch_all(&state.pool).await;
 
-    let mut count_sql = QueryBuilder::new("SELECT COUNT(*) FROM marketplace_lots l WHERE l.seller_user_id = ");
+    let mut count_sql = QueryBuilder::<Postgres>::new("SELECT COUNT(*) FROM marketplace_lots l WHERE l.seller_user_id = ");
     count_sql.push_bind(user_uuid);
     if let Some(category) = &category {
         count_sql.push(" AND l.category = ").push_bind(category);
@@ -519,7 +521,7 @@ async fn my_deals_http(
     };
     let (q, category, sort, limit, offset) = sanitize_marketplace_query(&query);
 
-    let mut sql = QueryBuilder::new(
+    let mut sql = QueryBuilder::<Postgres>::new(
         r#"
         SELECT
           t.id AS thread_id, t.status, t.buyer_user_id, t.seller_user_id,
@@ -559,7 +561,7 @@ async fn my_deals_http(
 
     let rows = sql.build_query_as::<MarketplaceDealRow>().fetch_all(&state.pool).await;
 
-    let mut count_sql = QueryBuilder::new(
+    let mut count_sql = QueryBuilder::<Postgres>::new(
         "SELECT COUNT(*) FROM marketplace_threads t JOIN marketplace_lots l ON l.id=t.lot_id JOIN users u ON u.id=l.seller_user_id WHERE (t.buyer_user_id = ",
     );
     count_sql
