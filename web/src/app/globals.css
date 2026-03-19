@@ -1,0 +1,144 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+  height: 100%;
+}
+
+html {
+  color-scheme: dark;
+  font-size: 20px;
+}
+
+body {
+  /* Тёмная “кибер” тема лендинга */
+  background: radial-gradient(1200px 700px at 20% 10%, rgba(34, 211, 238, 0.22), transparent 60%),
+    radial-gradient(900px 600px at 85% 20%, rgba(59, 130, 246, 0.18), transparent 55%),
+    radial-gradient(700px 500px at 50% 90%, rgba(20, 184, 166, 0.14), transparent 60%),
+    #05060a;
+  color: rgb(228, 236, 255);
+}
+
+/* Scrollbar styling to match the cyber theme */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(34, 211, 238, 0.55) rgba(255, 255, 255, 0.06);
+}
+*::-webkit-scrollbar {
+  height: 10px;
+  width: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb {
+  background: linear-gradient(
+    180deg,
+    rgba(34, 211, 238, 0.55),
+    rgba(59, 130, 246, 0.55)
+  );
+  border-radius: 999px;
+  border: 2px solid rgba(5, 6, 10, 0.7);
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(
+    180deg,
+    rgba(34, 211, 238, 0.72),
+    rgba(16, 185, 129, 0.62)
+  );
+}
+
+.zd-section {
+  position: relative;
+}
+.zd-section::before,
+.zd-section::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+}
+.zd-section::before {
+  top: -10px;
+  height: 56px;
+  background: linear-gradient(to bottom, rgba(5, 6, 10, 0), rgba(5, 6, 10, 0.35));
+}
+.zd-section::after {
+  bottom: -10px;
+  height: 56px;
+  background: linear-gradient(to top, rgba(5, 6, 10, 0), rgba(5, 6, 10, 0.35));
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+/* Glitch effect for hero title (no extra libs) */
+.zd-glitch {
+  position: relative;
+  display: inline-block;
+}
+.zd-glitch::before,
+.zd-glitch::after {
+  content: attr(data-text);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  overflow: hidden;
+  opacity: 0.85;
+}
+.zd-glitch::before {
+  transform: translate(2px, -1px);
+  color: rgba(34, 211, 238, 0.9);
+  clip-path: polygon(0 0, 100% 0, 100% 40%, 0 55%);
+  animation: zd-glitch-1 2.6s infinite linear;
+}
+.zd-glitch::after {
+  transform: translate(-2px, 1px);
+  color: rgba(59, 130, 246, 0.95);
+  clip-path: polygon(0 45%, 100% 35%, 100% 100%, 0 100%);
+  animation: zd-glitch-2 3.1s infinite linear;
+}
+
+@keyframes zd-glitch-1 {
+  0% {
+    clip-path: polygon(0 0, 100% 0, 100% 40%, 0 55%);
+  }
+  12% {
+    clip-path: polygon(0 15%, 100% 0, 100% 50%, 0 60%);
+  }
+  26% {
+    clip-path: polygon(0 0, 100% 10%, 100% 35%, 0 50%);
+  }
+  40% {
+    clip-path: polygon(0 40%, 100% 25%, 100% 70%, 0 90%);
+  }
+  100% {
+    clip-path: polygon(0 0, 100% 0, 100% 40%, 0 55%);
+  }
+}
+
+@keyframes zd-glitch-2 {
+  0% {
+    clip-path: polygon(0 45%, 100% 35%, 100% 100%, 0 100%);
+  }
+  14% {
+    clip-path: polygon(0 30%, 100% 25%, 100% 60%, 0 75%);
+  }
+  30% {
+    clip-path: polygon(0 55%, 100% 45%, 100% 90%, 0 100%);
+  }
+  52% {
+    clip-path: polygon(0 10%, 100% 15%, 100% 40%, 0 55%);
+  }
+  100% {
+    clip-path: polygon(0 45%, 100% 35%, 100% 100%, 0 100%);
+  }
+}

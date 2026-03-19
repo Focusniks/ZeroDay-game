@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 520">
+  <defs>
+    <linearGradient id="neon" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="0.6" stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#10b981"/>
+    </linearGradient>
+    <filter id="glow" x="-45%" y="-45%" width="190%" height="190%">
+      <feGaussianBlur stdDeviation="8" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="900" height="520" fill="#05060a"/>
+  <circle cx="260" cy="120" r="190" fill="#22d3ee" opacity="0.08"/>
+  <circle cx="760" cy="170" r="160" fill="#3b82f6" opacity="0.07"/>
+
+  <!-- Onion layers -->
+  <g transform="translate(150,70)" filter="url(#glow)">
+    <circle cx="300" cy="190" r="140" fill="#070912" opacity="0.68" stroke="#ffffff" stroke-opacity="0.08"/>
+    <circle cx="300" cy="190" r="110" fill="none" stroke="url(#neon)" stroke-width="6" opacity="0.35"/>
+    <circle cx="300" cy="190" r="80" fill="none" stroke="url(#neon)" stroke-width="5" opacity="0.25"/>
+    <circle cx="300" cy="190" r="50" fill="none" stroke="url(#neon)" stroke-width="4" opacity="0.22"/>
+
+    <!-- Threads -->
+    <g opacity="0.28" stroke="url(#neon)" stroke-width="3" fill="none" stroke-linecap="round">
+      <path d="M150 190 C220 135, 260 120, 300 120 C340 120, 380 135, 450 190"/>
+      <path d="M170 250 C220 230, 255 220, 300 220 C345 220, 380 230, 430 250"/>
+      <path d="M210 140 C250 170, 270 182, 300 182 C330 182, 350 170, 390 140"/>
+    </g>
+
+    <!-- .onion -->
+    <g>
+      <rect x="215" y="240" width="170" height="64" rx="20" fill="#05060a" opacity="0.55" stroke="#ffffff" stroke-opacity="0.08"/>
+      <text x="300" y="282" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" font-size="22" fill="url(#neon)" opacity="0.95">
+        .onion
+      </text>
+    </g>
+  </g>
+
+  <!-- Market cards -->
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" fill="#dbeafe">
+    <rect x="90" y="410" width="280" height="64" rx="18" fill="#070912" opacity="0.65" stroke="#ffffff" stroke-opacity="0.08"/>
+    <text x="120" y="448" font-size="16" opacity="0.9">marketplace: sim</text>
+
+    <rect x="510" y="410" width="300" height="64" rx="18" fill="#070912" opacity="0.65" stroke="#ffffff" stroke-opacity="0.08"/>
+    <text x="540" y="438" font-size="16" opacity="0.9">npc brokers: online</text>
+    <text x="540" y="462" font-size="16" opacity="0.7">ratings: updated</text>
+  </g>
+</svg>
+

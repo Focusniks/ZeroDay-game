@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 520">
+  <defs>
+    <linearGradient id="neon" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="0.55" stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#10b981"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="7" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="1000" height="520" fill="#05060a"/>
+  <circle cx="260" cy="140" r="170" fill="#22d3ee" opacity="0.10"/>
+  <circle cx="860" cy="160" r="140" fill="#3b82f6" opacity="0.08"/>
+
+  <!-- Chart -->
+  <rect x="70" y="70" width="860" height="380" rx="28" fill="#070912" opacity="0.65" stroke="#ffffff" stroke-opacity="0.08"/>
+  <g opacity="0.20" stroke="#22d3ee" stroke-width="1">
+    <path d="M110 150 H900"/>
+    <path d="M110 210 H900"/>
+    <path d="M110 270 H900"/>
+    <path d="M110 330 H900"/>
+    <path d="M110 390 H900"/>
+  </g>
+
+  <g filter="url(#glow)">
+    <path
+      d="M120 370 C210 300, 280 330, 360 260 C440 190, 520 250, 600 210 C680 170, 760 200, 880 120"
+      fill="none"
+      stroke="url(#neon)"
+      stroke-width="8"
+      stroke-linecap="round"
+      opacity="0.65"
+    />
+    <path
+      d="M120 410 C210 340, 290 390, 360 320 C450 230, 530 300, 610 260 C690 220, 770 240, 880 180"
+      fill="none"
+      stroke="url(#neon)"
+      stroke-width="5"
+      stroke-linecap="round"
+      opacity="0.35"
+    />
+
+    <circle cx="880" cy="120" r="12" fill="#22d3ee" opacity="0.35"/>
+    <circle cx="880" cy="120" r="5" fill="#22d3ee"/>
+    <circle cx="360" cy="260" r="12" fill="#3b82f6" opacity="0.30"/>
+    <circle cx="360" cy="260" r="5" fill="#3b82f6"/>
+    <circle cx="600" cy="210" r="12" fill="#10b981" opacity="0.26"/>
+    <circle cx="600" cy="210" r="5" fill="#10b981"/>
+  </g>
+
+  <!-- Coin -->
+  <g transform="translate(720,245)" filter="url(#glow)">
+    <ellipse cx="110" cy="60" rx="80" ry="80" fill="#070912" opacity="0.75" stroke="#ffffff" stroke-opacity="0.08"/>
+    <ellipse cx="110" cy="60" rx="62" ry="62" fill="none" stroke="url(#neon)" stroke-width="8" opacity="0.35"/>
+    <path d="M72 60 Q110 25 148 60 Q110 95 72 60 Z" fill="#05060a" opacity="0.35"/>
+    <text x="110" y="77" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" font-size="28" fill="url(#neon)">₡C</text>
+  </g>
+
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" font-size="18" fill="#dbeafe" opacity="0.9">
+    <text x="110" y="125">cryptocoin.market (sim)</text>
+    <text x="110" y="425" fill="#93c5fd">white/gray/black hat reputation: updated</text>
+  </g>
+</svg>
+

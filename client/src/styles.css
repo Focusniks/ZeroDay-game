@@ -130,13 +130,23 @@ body {
   border-radius: 14px;
   backdrop-filter: blur(14px);
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
-  z-index: 1000;
+  z-index: 300;
+  pointer-events: auto;
 }
 
 .taskbar-left {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 120px;
+}
+
+.taskbar-center {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
 }
 
 .taskbar-start {
@@ -154,6 +164,9 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 2px;
 }
 
 .taskbar-app {
@@ -211,6 +224,18 @@ body {
 .taskbar-clock:hover {
   background: rgba(255, 255, 255, 0.08);
   border-color: rgba(45, 212, 191, 0.35);
+}
+
+.taskbar-clock-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.05;
+}
+
+.taskbar-clock-date {
+  font-size: 10px;
+  color: rgba(148, 163, 184, 0.95);
 }
 
 .taskbar-net-btn--ok {
@@ -622,7 +647,10 @@ body {
 
 .desktop-icons-layer {
   position: absolute;
-  inset: 0;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 72px;
   z-index: 10;
   pointer-events: auto;
 }

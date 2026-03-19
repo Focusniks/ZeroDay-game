@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 520">
+  <defs>
+    <linearGradient id="neon" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="0.6" stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#10b981"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="7" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="900" height="520" fill="#05060a"/>
+  <circle cx="260" cy="120" r="170" fill="#22d3ee" opacity="0.10"/>
+  <circle cx="720" cy="140" r="140" fill="#3b82f6" opacity="0.10"/>
+
+  <!-- Globe -->
+  <g transform="translate(120,40)">
+    <circle cx="330" cy="220" r="150" fill="#070912" opacity="0.75" stroke="#ffffff" stroke-opacity="0.08" />
+    <circle cx="330" cy="220" r="150" fill="none" stroke="url(#neon)" stroke-width="6" opacity="0.30"/>
+
+    <!-- Latitude lines -->
+    <g stroke="#22d3ee" stroke-opacity="0.35" stroke-width="2" fill="none">
+      <path d="M180 220 C230 160, 430 160, 480 220 C430 280, 230 280, 180 220 Z" />
+      <path d="M205 170 C250 130, 410 130, 455 170" />
+      <path d="M205 270 C250 310, 410 310, 455 270" />
+    </g>
+
+    <!-- Circuit connections -->
+    <g filter="url(#glow)">
+      <path d="M250 240 L300 175 L355 220 L290 300 Z" fill="none" stroke="url(#neon)" stroke-width="5" opacity="0.35" stroke-linecap="round"/>
+      <path d="M390 185 L430 230 L380 270 L335 240 Z" fill="none" stroke="url(#neon)" stroke-width="4" opacity="0.30" stroke-linecap="round"/>
+      <circle cx="300" cy="175" r="7" fill="#22d3ee"/>
+      <circle cx="355" cy="220" r="7" fill="#3b82f6"/>
+      <circle cx="290" cy="300" r="7" fill="#10b981"/>
+      <circle cx="430" cy="230" r="7" fill="#22d3ee"/>
+    </g>
+
+    <!-- Chat bubbles -->
+    <g>
+      <rect x="520" y="90" width="190" height="85" rx="18" fill="#05060a" opacity="0.55" stroke="#ffffff" stroke-opacity="0.08"/>
+      <g font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" font-size="16" fill="#dbeafe" opacity="0.9">
+        <text x="542" y="125">[msg] stealth chat</text>
+        <text x="542" y="150">[role] operator</text>
+      </g>
+      <path d="M545 175 L580 140 L595 175 Z" fill="#05060a" opacity="0.55"/>
+    </g>
+  </g>
+</svg>
+

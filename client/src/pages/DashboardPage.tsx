@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useI18n } from "../hooks/useI18n";
 import { useGameConfig } from "../hooks/useGameConfig";
@@ -209,9 +209,15 @@ export function DashboardPage() {
     return () => window.clearInterval(id);
   }, []);
   const clockText = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+  const clockDateText = now.toLocaleDateString(lang === "ru" ? "ru-RU" : "en-US", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric"
+  });
 
   const [clockMenuOpen, setClockMenuOpen] = useState(false);
   const clockMenuRef = useRef<HTMLDivElement | null>(null);
+  const clockBtnRef = useRef<HTMLButtonElement | null>(null);
   const [clockMenuPos, setClockMenuPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [calendarView, setCalendarView] = useState(() => {
     const d = new Date();
@@ -273,240 +279,132 @@ export function DashboardPage() {
     setTerminalInjectKey((k) => k + 1);
   };
 
-  // Window stacking / focus management (Linux-like: last focused window is on top).
+  // Window stacking / focus management (full rewrite: shared mechanics for all app windows).
   type WindowId = "terminal" | "settings" | "files" | "notes" | "scripts" | "media";
-  const [windowZ, setWindowZ] = useState<Record<WindowId, number>>({
-    terminal: 70,
-    settings: 75,
-    files: 76,
-    notes: 77,
-    scripts: 78,
-    media: 79
-  });
+  type WindowBaseState = { id: string; minimized: boolean; z: number };
   const [activeWindowId, setActiveWindowId] = useState<WindowId>("terminal");
   const zTopRef = useRef(90);
-  const bringToFront = (id: WindowId) => {
+  const makeWindowId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const nextZ = () => {
     zTopRef.current += 1;
-    setWindowZ((prev) => ({ ...prev, [id]: zTopRef.current }));
-    setActiveWindowId(id);
+    return zTopRef.current;
+  };
+  const topByZ = <T extends WindowBaseState>(windows: T[]) =>
+    [...windows].sort((a, b) => b.z - a.z)[0] ?? null;
+  const hasOpenWindows = <T extends WindowBaseState>(windows: T[]) => windows.some((w) => !w.minimized);
+  const hasMinimizedWindows = <T extends WindowBaseState>(windows: T[]) => windows.some((w) => w.minimized);
+  const focusWindowInList = <T extends WindowBaseState>(
+    setState: Dispatch<SetStateAction<T[]>>,
+    windowType: WindowId,
+    id: string
+  ) => {
+    const z = nextZ();
+    setState((prev) => prev.map((w) => (w.id === id ? { ...w, z, minimized: false } : w)));
+    setActiveWindowId(windowType);
+  };
+  const restoreTopMinimizedInList = <T extends WindowBaseState>(
+    windows: T[],
+    setState: Dispatch<SetStateAction<T[]>>,
+    windowType: WindowId
+  ) => {
+    const target = [...windows].filter((w) => w.minimized).sort((a, b) => b.z - a.z)[0];
+    if (!target) return;
+    const z = nextZ();
+    setState((prev) => prev.map((w) => (w.id === target.id ? { ...w, minimized: false, z } : w)));
+    setActiveWindowId(windowType);
+  };
+
+  const [terminalZ, setTerminalZ] = useState(91);
+  const focusTerminal = () => {
+    setTerminalZ(nextZ());
+    setActiveWindowId("terminal");
   };
 
   type SettingsTab = "system" | "desktop" | "network" | "profile";
-  type SettingsWindowState = { id: string; initialTab: SettingsTab; minimized: boolean };
+  type SettingsWindowState = WindowBaseState & { initialTab: SettingsTab };
   const [settingsWindows, setSettingsWindows] = useState<SettingsWindowState[]>([]);
   const openSettings = (initialTab: SettingsTab = "system") => {
+    const z = nextZ();
     const id = makeWindowId();
-    setSettingsWindows((prev) => [...prev, { id, initialTab, minimized: false }]);
-    bringToFront("settings");
-    window.requestAnimationFrame(() => bringToFront("settings"));
+    setSettingsWindows((prev) => [...prev, { id, initialTab, minimized: false, z }]);
+    setActiveWindowId("settings");
   };
-  const closeSettingsWindow = (id: string) => {
-    setSettingsWindows((prev) => prev.filter((w) => w.id !== id));
-  };
-  const minimizeSettingsWindow = (id: string) => {
+  const closeSettingsWindow = (id: string) => setSettingsWindows((prev) => prev.filter((w) => w.id !== id));
+  const minimizeSettingsWindow = (id: string) =>
     setSettingsWindows((prev) => prev.map((w) => (w.id === id ? { ...w, minimized: true } : w)));
-  };
-  const focusSettingsWindow = (id: string) => {
-    bringToFront("settings");
-    setSettingsWindows((prev) => {
-      const idx = prev.findIndex((w) => w.id === id);
-      if (idx < 0 || idx === prev.length - 1) return prev;
-      const next = [...prev];
-      const [target] = next.splice(idx, 1);
-      next.push(target);
-      return next;
-    });
-  };
-  const restoreTopSettingsWindow = () => {
-    setSettingsWindows((prev) => {
-      if (!prev.length) return prev;
-      const next = [...prev];
-      const idx = [...next].reverse().findIndex((w) => w.minimized);
-      if (idx < 0) return next;
-      const realIdx = next.length - 1 - idx;
-      next[realIdx] = { ...next[realIdx], minimized: false };
-      const [target] = next.splice(realIdx, 1);
-      next.push(target);
-      return next;
-    });
-    bringToFront("settings");
-  };
-  const settingsOpen = settingsWindows.some((w) => !w.minimized);
-  const settingsMinimized = settingsWindows.some((w) => w.minimized);
-  const topSettingsWindow = settingsWindows[settingsWindows.length - 1] ?? null;
+  const focusSettingsWindow = (id: string) => focusWindowInList(setSettingsWindows, "settings", id);
+  const restoreTopSettingsWindow = () => restoreTopMinimizedInList(settingsWindows, setSettingsWindows, "settings");
+  const settingsOpen = hasOpenWindows(settingsWindows);
+  const settingsMinimized = hasMinimizedWindows(settingsWindows);
+  const topSettingsWindow = topByZ(settingsWindows);
 
-  type FilesWindowState = { id: string; startRelPath: string; minimized: boolean };
+  type FilesWindowState = WindowBaseState & { startRelPath: string };
   const [filesWindows, setFilesWindows] = useState<FilesWindowState[]>([]);
-  const makeWindowId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const openFiles = (startRelPath = "") => {
+    const z = nextZ();
     const id = makeWindowId();
-    setFilesWindows((prev) => [...prev, { id, startRelPath, minimized: false }]);
-    bringToFront("files");
-    window.requestAnimationFrame(() => bringToFront("files"));
+    setFilesWindows((prev) => [...prev, { id, startRelPath, minimized: false, z }]);
+    setActiveWindowId("files");
   };
-  const closeFilesWindow = (id: string) => {
-    setFilesWindows((prev) => prev.filter((w) => w.id !== id));
-  };
-  const minimizeFilesWindow = (id: string) => {
+  const closeFilesWindow = (id: string) => setFilesWindows((prev) => prev.filter((w) => w.id !== id));
+  const minimizeFilesWindow = (id: string) =>
     setFilesWindows((prev) => prev.map((w) => (w.id === id ? { ...w, minimized: true } : w)));
-  };
-  const focusFilesWindow = (id: string) => {
-    bringToFront("files");
-    setFilesWindows((prev) => {
-      const idx = prev.findIndex((w) => w.id === id);
-      if (idx < 0 || idx === prev.length - 1) return prev;
-      const next = [...prev];
-      const [target] = next.splice(idx, 1);
-      next.push(target);
-      return next;
-    });
-  };
-  const restoreTopFilesWindow = () => {
-    setFilesWindows((prev) => {
-      if (!prev.length) return prev;
-      const next = [...prev];
-      const idx = [...next].reverse().findIndex((w) => w.minimized);
-      if (idx < 0) return next;
-      const realIdx = next.length - 1 - idx;
-      next[realIdx] = { ...next[realIdx], minimized: false };
-      const [target] = next.splice(realIdx, 1);
-      next.push(target);
-      return next;
-    });
-    bringToFront("files");
-  };
-  const filesOpen = filesWindows.some((w) => !w.minimized);
-  const filesMinimized = filesWindows.some((w) => w.minimized);
-  const topFilesWindow = filesWindows[filesWindows.length - 1] ?? null;
+  const focusFilesWindow = (id: string) => focusWindowInList(setFilesWindows, "files", id);
+  const restoreTopFilesWindow = () => restoreTopMinimizedInList(filesWindows, setFilesWindows, "files");
+  const filesOpen = hasOpenWindows(filesWindows);
+  const filesMinimized = hasMinimizedWindows(filesWindows);
+  const topFilesWindow = topByZ(filesWindows);
 
-  type NotesWindowState = { id: string; initialRelPath?: string; minimized: boolean };
+  type NotesWindowState = WindowBaseState & { initialRelPath?: string };
   const [notesWindows, setNotesWindows] = useState<NotesWindowState[]>([]);
   const openNotes = (relPath?: string) => {
+    const z = nextZ();
     const id = makeWindowId();
-    setNotesWindows((prev) => [...prev, { id, initialRelPath: relPath, minimized: false }]);
-    bringToFront("notes");
-    window.requestAnimationFrame(() => bringToFront("notes"));
+    setNotesWindows((prev) => [...prev, { id, initialRelPath: relPath, minimized: false, z }]);
+    setActiveWindowId("notes");
   };
-  const closeNotesWindow = (id: string) => {
-    setNotesWindows((prev) => prev.filter((w) => w.id !== id));
-  };
-  const minimizeNotesWindow = (id: string) => {
+  const closeNotesWindow = (id: string) => setNotesWindows((prev) => prev.filter((w) => w.id !== id));
+  const minimizeNotesWindow = (id: string) =>
     setNotesWindows((prev) => prev.map((w) => (w.id === id ? { ...w, minimized: true } : w)));
-  };
-  const focusNotesWindow = (id: string) => {
-    bringToFront("notes");
-    setNotesWindows((prev) => {
-      const idx = prev.findIndex((w) => w.id === id);
-      if (idx < 0 || idx === prev.length - 1) return prev;
-      const next = [...prev];
-      const [target] = next.splice(idx, 1);
-      next.push(target);
-      return next;
-    });
-  };
-  const restoreTopNotesWindow = () => {
-    setNotesWindows((prev) => {
-      if (!prev.length) return prev;
-      const next = [...prev];
-      const idx = [...next].reverse().findIndex((w) => w.minimized);
-      if (idx < 0) return next;
-      const realIdx = next.length - 1 - idx;
-      next[realIdx] = { ...next[realIdx], minimized: false };
-      const [target] = next.splice(realIdx, 1);
-      next.push(target);
-      return next;
-    });
-    bringToFront("notes");
-  };
-  const notesOpen = notesWindows.some((w) => !w.minimized);
-  const notesMinimized = notesWindows.some((w) => w.minimized);
-  const topNotesWindow = notesWindows[notesWindows.length - 1] ?? null;
+  const focusNotesWindow = (id: string) => focusWindowInList(setNotesWindows, "notes", id);
+  const restoreTopNotesWindow = () => restoreTopMinimizedInList(notesWindows, setNotesWindows, "notes");
+  const notesOpen = hasOpenWindows(notesWindows);
+  const notesMinimized = hasMinimizedWindows(notesWindows);
+  const topNotesWindow = topByZ(notesWindows);
 
-  type ScriptsWindowState = { id: string; initialRelPath?: string; minimized: boolean };
+  type ScriptsWindowState = WindowBaseState & { initialRelPath?: string };
   const [scriptsWindows, setScriptsWindows] = useState<ScriptsWindowState[]>([]);
   const openScripts = (relPath?: string) => {
+    const z = nextZ();
     const id = makeWindowId();
-    setScriptsWindows((prev) => [...prev, { id, initialRelPath: relPath, minimized: false }]);
-    bringToFront("scripts");
-    window.requestAnimationFrame(() => bringToFront("scripts"));
+    setScriptsWindows((prev) => [...prev, { id, initialRelPath: relPath, minimized: false, z }]);
+    setActiveWindowId("scripts");
   };
-  const closeScriptsWindow = (id: string) => {
-    setScriptsWindows((prev) => prev.filter((w) => w.id !== id));
-  };
-  const minimizeScriptsWindow = (id: string) => {
+  const closeScriptsWindow = (id: string) => setScriptsWindows((prev) => prev.filter((w) => w.id !== id));
+  const minimizeScriptsWindow = (id: string) =>
     setScriptsWindows((prev) => prev.map((w) => (w.id === id ? { ...w, minimized: true } : w)));
-  };
-  const focusScriptsWindow = (id: string) => {
-    bringToFront("scripts");
-    setScriptsWindows((prev) => {
-      const idx = prev.findIndex((w) => w.id === id);
-      if (idx < 0 || idx === prev.length - 1) return prev;
-      const next = [...prev];
-      const [target] = next.splice(idx, 1);
-      next.push(target);
-      return next;
-    });
-  };
-  const restoreTopScriptsWindow = () => {
-    setScriptsWindows((prev) => {
-      if (!prev.length) return prev;
-      const next = [...prev];
-      const idx = [...next].reverse().findIndex((w) => w.minimized);
-      if (idx < 0) return next;
-      const realIdx = next.length - 1 - idx;
-      next[realIdx] = { ...next[realIdx], minimized: false };
-      const [target] = next.splice(realIdx, 1);
-      next.push(target);
-      return next;
-    });
-    bringToFront("scripts");
-  };
-  const scriptsOpen = scriptsWindows.some((w) => !w.minimized);
-  const scriptsMinimized = scriptsWindows.some((w) => w.minimized);
-  const topScriptsWindow = scriptsWindows[scriptsWindows.length - 1] ?? null;
+  const focusScriptsWindow = (id: string) => focusWindowInList(setScriptsWindows, "scripts", id);
+  const restoreTopScriptsWindow = () => restoreTopMinimizedInList(scriptsWindows, setScriptsWindows, "scripts");
+  const scriptsOpen = hasOpenWindows(scriptsWindows);
+  const scriptsMinimized = hasMinimizedWindows(scriptsWindows);
+  const topScriptsWindow = topByZ(scriptsWindows);
 
-  type MediaWindowState = { id: string; initialRelPath?: string; minimized: boolean };
+  type MediaWindowState = WindowBaseState & { initialRelPath?: string };
   const [mediaWindows, setMediaWindows] = useState<MediaWindowState[]>([]);
   const openMedia = (relPath?: string) => {
+    const z = nextZ();
     const id = makeWindowId();
-    setMediaWindows((prev) => [...prev, { id, initialRelPath: relPath, minimized: false }]);
-    bringToFront("media");
-    window.requestAnimationFrame(() => bringToFront("media"));
+    setMediaWindows((prev) => [...prev, { id, initialRelPath: relPath, minimized: false, z }]);
+    setActiveWindowId("media");
   };
-  const closeMediaWindow = (id: string) => {
-    setMediaWindows((prev) => prev.filter((w) => w.id !== id));
-  };
-  const minimizeMediaWindow = (id: string) => {
+  const closeMediaWindow = (id: string) => setMediaWindows((prev) => prev.filter((w) => w.id !== id));
+  const minimizeMediaWindow = (id: string) =>
     setMediaWindows((prev) => prev.map((w) => (w.id === id ? { ...w, minimized: true } : w)));
-  };
-  const focusMediaWindow = (id: string) => {
-    bringToFront("media");
-    setMediaWindows((prev) => {
-      const idx = prev.findIndex((w) => w.id === id);
-      if (idx < 0 || idx === prev.length - 1) return prev;
-      const next = [...prev];
-      const [target] = next.splice(idx, 1);
-      next.push(target);
-      return next;
-    });
-  };
-  const restoreTopMediaWindow = () => {
-    setMediaWindows((prev) => {
-      if (!prev.length) return prev;
-      const next = [...prev];
-      const idx = [...next].reverse().findIndex((w) => w.minimized);
-      if (idx < 0) return next;
-      const realIdx = next.length - 1 - idx;
-      next[realIdx] = { ...next[realIdx], minimized: false };
-      const [target] = next.splice(realIdx, 1);
-      next.push(target);
-      return next;
-    });
-    bringToFront("media");
-  };
-  const mediaOpen = mediaWindows.some((w) => !w.minimized);
-  const mediaMinimized = mediaWindows.some((w) => w.minimized);
-  const topMediaWindow = mediaWindows[mediaWindows.length - 1] ?? null;
+  const focusMediaWindow = (id: string) => focusWindowInList(setMediaWindows, "media", id);
+  const restoreTopMediaWindow = () => restoreTopMinimizedInList(mediaWindows, setMediaWindows, "media");
+  const mediaOpen = hasOpenWindows(mediaWindows);
+  const mediaMinimized = hasMinimizedWindows(mediaWindows);
+  const topMediaWindow = topByZ(mediaWindows);
 
   const [desktopItems, setDesktopItems] = useState<FsEntry[]>([]);
 
@@ -971,12 +869,15 @@ export function DashboardPage() {
       const netEl = netMenuRef.current;
       const infoEl = desktopInfoRef.current;
       const clockEl = clockMenuRef.current;
+      const clockBtnEl = clockBtnRef.current;
       const target = e.target;
       const clickedOutsideStart = el ? !(target instanceof Node && el.contains(target)) : true;
       const clickedOutsideMenu = menuEl ? !(target instanceof Node && menuEl.contains(target)) : true;
       const clickedOutsideNet = netEl ? !(target instanceof Node && netEl.contains(target)) : true;
       const clickedOutsideInfo = infoEl ? !(target instanceof Node && infoEl.contains(target)) : true;
-      const clickedOutsideClock = clockEl ? !(target instanceof Node && clockEl.contains(target)) : true;
+      const clickedOutsideClockMenu = clockEl ? !(target instanceof Node && clockEl.contains(target)) : true;
+      const clickedOutsideClockBtn = clockBtnEl ? !(target instanceof Node && clockBtnEl.contains(target)) : true;
+      const clickedOutsideClock = clickedOutsideClockMenu && clickedOutsideClockBtn;
       if (clickedOutsideStart) setStartOpen(false);
       if (clickedOutsideMenu) {
         setDesktopMenuOpen(false);
@@ -1013,10 +914,9 @@ export function DashboardPage() {
   };
 
   const openTerminal = () => {
-    bringToFront("terminal");
+    focusTerminal();
     setTerminalOpen(true);
     setTerminalMinimized(false);
-    window.requestAnimationFrame(() => bringToFront("terminal"));
   };
 
   const minimizeTerminal = () => {
@@ -1114,6 +1014,84 @@ export function DashboardPage() {
     }
     openMedia();
   };
+
+  const toggleClockPopover = (anchor: HTMLButtonElement) => {
+    if (clockMenuOpen) {
+      setClockMenuOpen(false);
+      return;
+    }
+    const rect = anchor.getBoundingClientRect();
+    setClockMenuPos({ x: rect.right - 320, y: rect.bottom });
+    setCalendarView({ year: now.getFullYear(), month: now.getMonth() });
+    setClockMenuOpen(true);
+    setNetMenuOpen(false);
+    setDesktopMenuOpen(false);
+  };
+
+  const runningApps: Array<{
+    key: WindowId;
+    shown: boolean;
+    active: boolean;
+    label: string;
+    title: string;
+    icon: ReactNode;
+    onClick: () => void;
+  }> = [
+    {
+      key: "terminal",
+      shown: terminalOpen || terminalMinimized,
+      active: activeWindowId === "terminal" && terminalOpen && !terminalMinimized,
+      label: "Terminal",
+      title: t.dockTerminal,
+      icon: <TerminalIcon />,
+      onClick: terminalTaskClick
+    },
+    {
+      key: "settings",
+      shown: settingsOpen || settingsMinimized,
+      active: activeWindowId === "settings" && settingsOpen && !settingsMinimized,
+      label: t.dockSettings,
+      title: t.dockSettings,
+      icon: <GearIcon size={18} />,
+      onClick: settingsTaskClick
+    },
+    {
+      key: "files",
+      shown: filesOpen || filesMinimized,
+      active: activeWindowId === "files" && filesOpen && !filesMinimized,
+      label: lang === "ru" ? "Файлы" : "Files",
+      title: lang === "ru" ? "Файлы" : "Files",
+      icon: <FilesIcon />,
+      onClick: filesTaskClick
+    },
+    {
+      key: "notes",
+      shown: notesOpen || notesMinimized,
+      active: activeWindowId === "notes" && notesOpen && !notesMinimized,
+      label: lang === "ru" ? "Заметки" : "Notes",
+      title: lang === "ru" ? "Заметки" : "Notes",
+      icon: <NoteIcon />,
+      onClick: notesTaskClick
+    },
+    {
+      key: "scripts",
+      shown: scriptsOpen || scriptsMinimized,
+      active: activeWindowId === "scripts" && scriptsOpen && !scriptsMinimized,
+      label: lang === "ru" ? "Скрипты" : "Scripts",
+      title: lang === "ru" ? "Скрипты" : "Scripts",
+      icon: <CodeIcon />,
+      onClick: scriptsTaskClick
+    },
+    {
+      key: "media",
+      shown: mediaOpen || mediaMinimized,
+      active: activeWindowId === "media" && mediaOpen && !mediaMinimized,
+      label: lang === "ru" ? "Медиа" : "Media",
+      title: lang === "ru" ? "Медиа" : "Media",
+      icon: <MediaIcon />,
+      onClick: mediaTaskClick
+    }
+  ];
 
   return (
     <div
@@ -1546,111 +1524,71 @@ export function DashboardPage() {
               </div>
             ) : null}
           </div>
+        </div>
 
-          {/* Running apps */}
+        <div className="taskbar-center">
           <div className="taskbar-apps">
-            {(terminalOpen || terminalMinimized) && (
+            {runningApps.filter((a) => a.shown).map((app) => (
               <button
+                key={app.key}
                 type="button"
-                onClick={terminalTaskClick}
-                className={`taskbar-app ${
-                  activeWindowId === "terminal" && terminalOpen && !terminalMinimized ? "taskbar-app--active" : ""
-                }`}
-                aria-label="Terminal"
-                title={t.dockTerminal}
+                onClick={app.onClick}
+                className={`taskbar-app ${app.active ? "taskbar-app--active" : ""}`}
+                aria-label={app.label}
+                title={app.title}
               >
-                <TerminalIcon />
+                {app.icon}
               </button>
-            )}
-
-            {(settingsOpen || settingsMinimized) && (
-              <button
-                type="button"
-                onClick={settingsTaskClick}
-                className={`taskbar-app ${
-                  activeWindowId === "settings" && settingsOpen && !settingsMinimized ? "taskbar-app--active" : ""
-                }`}
-                aria-label={t.dockSettings}
-                title={t.dockSettings}
-              >
-                <GearIcon size={18} />
-              </button>
-            )}
-
-            {(filesOpen || filesMinimized) && (
-              <button
-                type="button"
-                onClick={filesTaskClick}
-                className={`taskbar-app ${
-                  activeWindowId === "files" && filesOpen && !filesMinimized ? "taskbar-app--active" : ""
-                }`}
-                aria-label={lang === "ru" ? "Файлы" : "Files"}
-                title={lang === "ru" ? "Файлы" : "Files"}
-              >
-                <FilesIcon />
-              </button>
-            )}
-
-            {(notesOpen || notesMinimized) && (
-              <button
-                type="button"
-                onClick={notesTaskClick}
-                className={`taskbar-app ${
-                  activeWindowId === "notes" && notesOpen && !notesMinimized ? "taskbar-app--active" : ""
-                }`}
-                aria-label={lang === "ru" ? "Заметки" : "Notes"}
-                title={lang === "ru" ? "Заметки" : "Notes"}
-              >
-                <NoteIcon />
-              </button>
-            )}
-
-            {(scriptsOpen || scriptsMinimized) && (
-              <button
-                type="button"
-                onClick={scriptsTaskClick}
-                className={`taskbar-app ${
-                  activeWindowId === "scripts" && scriptsOpen && !scriptsMinimized ? "taskbar-app--active" : ""
-                }`}
-                aria-label={lang === "ru" ? "Скрипты" : "Scripts"}
-                title={lang === "ru" ? "Скрипты" : "Scripts"}
-              >
-                <CodeIcon />
-              </button>
-            )}
-
-            {(mediaOpen || mediaMinimized) && (
-              <button
-                type="button"
-                onClick={mediaTaskClick}
-                className={`taskbar-app ${
-                  activeWindowId === "media" && mediaOpen && !mediaMinimized ? "taskbar-app--active" : ""
-                }`}
-                aria-label={lang === "ru" ? "Медиа" : "Media"}
-                title={lang === "ru" ? "Медиа" : "Media"}
-              >
-                <MediaIcon />
-              </button>
-            )}
+            ))}
           </div>
         </div>
 
         <div className="taskbar-right">
+          <div className="taskbar-right-icons">
+            <button
+              type="button"
+              className={`taskbar-app taskbar-net-btn ${
+                netIsConnected ? "taskbar-net-btn--ok" : netIsConnecting ? "taskbar-net-btn--connecting" : "taskbar-net-btn--bad"
+              }`}
+              onClick={() => setNetMenuOpen((v) => !v)}
+              aria-label={lang === "ru" ? "Интернет" : "Network"}
+              title={lang === "ru" ? "Сеть" : "Network"}
+            >
+              <WifiIcon ok={netIsConnected} />
+            </button>
+
+            <button
+              type="button"
+              className="taskbar-app"
+              onClick={() => {
+                setNetMenuOpen(false);
+                openSettings();
+              }}
+              aria-label={t.dockSettings}
+              title={t.dockSettings}
+            >
+              <GearIcon size={18} />
+            </button>
+
+            {/* Exit/Logout buttons removed (handled via system UI), see Start menu / dialogs. */}
+          </div>
+
           <button
+            ref={clockBtnRef}
             type="button"
             className="taskbar-clock"
-            onClick={(e) => {
-              const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
-              setClockMenuPos({ x: rect.left, y: rect.bottom });
-              setCalendarView({ year: now.getFullYear(), month: now.getMonth() });
-              setClockMenuOpen(true);
-              setNetMenuOpen(false);
-              setDesktopMenuOpen(false);
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              toggleClockPopover(e.currentTarget as HTMLButtonElement);
             }}
             aria-label={lang === "ru" ? "Часы" : "Clock"}
             title={lang === "ru" ? "Системное время" : "System time"}
           >
-            {clockText}
+            <span className="taskbar-clock-wrap">
+              <span>{clockText}</span>
+              <span className="taskbar-clock-date">{clockDateText}</span>
+            </span>
           </button>
 
           {clockMenuOpen ? (
@@ -1658,7 +1596,7 @@ export function DashboardPage() {
               ref={clockMenuRef}
               className="clock-popover"
               style={{
-                left: Math.min(clockMenuPos.x, window.innerWidth - 320),
+                left: Math.max(8, Math.min(clockMenuPos.x, window.innerWidth - 320)),
                 top: Math.min(clockMenuPos.y, window.innerHeight - 380)
               }}
               role="dialog"
@@ -1748,35 +1686,6 @@ export function DashboardPage() {
               })()}
             </div>
           ) : null}
-
-          <div className="taskbar-right-icons">
-            <button
-              type="button"
-              className={`taskbar-app taskbar-net-btn ${
-                netIsConnected ? "taskbar-net-btn--ok" : netIsConnecting ? "taskbar-net-btn--connecting" : "taskbar-net-btn--bad"
-              }`}
-              onClick={() => setNetMenuOpen((v) => !v)}
-              aria-label={lang === "ru" ? "Интернет" : "Network"}
-              title={lang === "ru" ? "Сеть" : "Network"}
-            >
-              <WifiIcon ok={netIsConnected} />
-            </button>
-
-            <button
-              type="button"
-              className="taskbar-app"
-              onClick={() => {
-                setNetMenuOpen(false);
-                openSettings();
-              }}
-              aria-label={t.dockSettings}
-              title={t.dockSettings}
-            >
-              <GearIcon size={18} />
-            </button>
-
-            {/* Exit/Logout buttons removed (handled via system UI), see Start menu / dialogs. */}
-          </div>
 
           {netMenuOpen ? (
             <div
@@ -2400,7 +2309,7 @@ export function DashboardPage() {
       ) : null}
 
       {/* Settings app windows */}
-      {settingsWindows.map((w, idx) => (
+      {settingsWindows.map((w) => (
         <SettingsApp
           key={w.id}
           lang={lang}
@@ -2409,12 +2318,12 @@ export function DashboardPage() {
           minimized={w.minimized}
           initialTab={w.initialTab}
           onFocus={() => focusSettingsWindow(w.id)}
-          zIndex={windowZ.settings + idx}
+          zIndex={w.z}
         />
       ))}
 
       {/* Files app windows */}
-      {filesWindows.map((w, idx) => (
+      {filesWindows.map((w) => (
         <FilesApp
           key={w.id}
           lang={lang}
@@ -2427,12 +2336,12 @@ export function DashboardPage() {
           onOpenScript={(relPath) => openScripts(relPath)}
           onOpenMedia={(relPath) => openMedia(relPath)}
           onFocus={() => focusFilesWindow(w.id)}
-          zIndex={windowZ.files + idx}
+          zIndex={w.z}
         />
       ))}
 
       {/* Notes app windows */}
-      {notesWindows.map((w, idx) => (
+      {notesWindows.map((w) => (
         <NotesApp
           key={w.id}
           lang={lang}
@@ -2441,12 +2350,12 @@ export function DashboardPage() {
           onClose={() => closeNotesWindow(w.id)}
           minimized={w.minimized}
           onFocus={() => focusNotesWindow(w.id)}
-          zIndex={windowZ.notes + idx}
+          zIndex={w.z}
         />
       ))}
 
       {/* Code editor app windows */}
-      {scriptsWindows.map((w, idx) => (
+      {scriptsWindows.map((w) => (
         <CodeEditorApp
           key={w.id}
           lang={lang}
@@ -2455,7 +2364,7 @@ export function DashboardPage() {
           onClose={() => closeScriptsWindow(w.id)}
           minimized={w.minimized}
           onFocus={() => focusScriptsWindow(w.id)}
-          zIndex={windowZ.scripts + idx}
+          zIndex={w.z}
           onRunInTerminal={(scriptRelPath) => {
             openTerminal();
             window.dispatchEvent(
@@ -2468,7 +2377,7 @@ export function DashboardPage() {
       ))}
 
       {/* Media app windows */}
-      {mediaWindows.map((w, idx) => (
+      {mediaWindows.map((w) => (
         <MediaApp
           key={w.id}
           lang={lang}
@@ -2477,7 +2386,7 @@ export function DashboardPage() {
           onClose={() => closeMediaWindow(w.id)}
           minimized={w.minimized}
           onFocus={() => focusMediaWindow(w.id)}
-          zIndex={windowZ.media + idx}
+          zIndex={w.z}
         />
       ))}
 
@@ -2493,8 +2402,8 @@ export function DashboardPage() {
           minimized={terminalMinimized && !terminalOpen}
           injectKey={terminalInjectKey}
           injectLines={terminalInjectLines}
-          onFocus={() => bringToFront("terminal")}
-          zIndex={windowZ.terminal}
+          onFocus={focusTerminal}
+          zIndex={terminalZ}
         />
       ) : null}
     </div>

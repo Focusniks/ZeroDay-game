@@ -13,6 +13,9 @@ import {
 import { useAuth } from "../../hooks/useAuth";
 import { fileToBase64, initGameFs, listFs, writeBytesBase64Fs, type FsEntry } from "../../lib/gameFs";
 
+const TASKBAR_SAFE_HEIGHT = 72;
+let settingsSpawnSeq = 0;
+
 type Props = {
   lang: GameLanguage;
   onClose: () => void;
@@ -98,6 +101,7 @@ export function SettingsApp({
       .trim();
 
   const [termRect, setTermRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const spawnOffsetRef = useRef((settingsSpawnSeq++ % 8) * 20);
   const termRectRef = useRef(termRect);
   const [maximized, setMaximized] = useState(false);
   const maximizedRef = useRef(maximized);
@@ -108,6 +112,7 @@ export function SettingsApp({
     startY: number;
     originX: number;
     originY: number;
+    pointerId: number;
   } | null>(null);
 
   const [maximizedTick, setMaximizedTick] = useState(0);
@@ -132,14 +137,15 @@ export function SettingsApp({
     const compute = () => {
       const vw = window.innerWidth;
       const vh = window.innerHeight;
-      const taskbarH = 48;
+      const taskbarH = TASKBAR_SAFE_HEIGHT;
       const pad = 10;
 
       const getDefaultRect = () => {
         const w = Math.min(920, Math.floor(vw * 0.8));
         const h = Math.min(720, Math.floor((vh - taskbarH) * 0.78));
-        const x = Math.max(10, Math.floor((vw - w) / 2));
-        const y = Math.max(10, Math.floor((vh - taskbarH - h) / 2));
+        const off = spawnOffsetRef.current;
+        const x = Math.min(Math.max(10, Math.floor((vw - w) / 2) + off), vw - w - 10);
+        const y = Math.min(Math.max(10, Math.floor((vh - taskbarH - h) / 2) + off), vh - taskbarH - h - 10);
         return { x, y, w, h };
       };
 
@@ -158,19 +164,21 @@ export function SettingsApp({
   }, []);
 
   useEffect(() => {
-    const onMove = (e: MouseEvent) => {
+    const onMove = (e: PointerEvent) => {
       const cur = termRectRef.current;
       if (!dragRef.current || !cur) return;
+      if (e.pointerId !== dragRef.current.pointerId) return;
       const dx = e.clientX - dragRef.current.startX;
       const dy = e.clientY - dragRef.current.startY;
 
       const vw = window.innerWidth;
       const vh = window.innerHeight;
+      const taskbarH = TASKBAR_SAFE_HEIGHT;
       const w = cur.w;
       const h = cur.h;
 
       const nextX = Math.min(Math.max(0, dragRef.current.originX + dx), vw - w);
-      const nextY = Math.min(Math.max(0, dragRef.current.originY + dy), vh - h);
+      const nextY = Math.min(Math.max(0, dragRef.current.originY + dy), vh - taskbarH - h);
       setTermRect((prev) => (prev ? { ...prev, x: nextX, y: nextY } : prev));
     };
 
@@ -178,11 +186,11 @@ export function SettingsApp({
       dragRef.current = null;
     };
 
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
     return () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
     };
   }, []);
 
@@ -195,7 +203,7 @@ export function SettingsApp({
       const { dir, startX, startRect } = r;
       const vw = window.innerWidth;
       const vh = window.innerHeight;
-      const taskbarH = 48;
+      const taskbarH = TASKBAR_SAFE_HEIGHT;
       const minW = 320;
       const minH = 220;
 
@@ -260,7 +268,7 @@ export function SettingsApp({
     }
     prevRectRef.current = termRect;
     setMaximized(true);
-    const taskbarH = 48;
+    const taskbarH = TASKBAR_SAFE_HEIGHT;
     const pad = 10;
     setTermRect({
       x: pad,
@@ -295,17 +303,21 @@ export function SettingsApp({
     >
       <div
         className="flex cursor-grab items-center justify-between border-b border-white/10 bg-[#2d3139] px-4 py-2.5"
-        onMouseDown={(e) => {
+        onPointerDown={(e) => {
           const target = e.target as HTMLElement | null;
           if (target && (target.closest("button") || target.closest("input") || target.closest(".resize-handle"))) return;
           if (maximizedRef.current) return;
           if (!termRect) return;
+          e.preventDefault();
+          e.stopPropagation();
           dragRef.current = {
             startX: e.clientX,
             startY: e.clientY,
             originX: termRect.x,
-            originY: termRect.y
+            originY: termRect.y,
+            pointerId: e.pointerId
           };
+          (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
         }}
         role="presentation"
       >

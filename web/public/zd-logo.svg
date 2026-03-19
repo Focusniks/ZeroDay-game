@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22d3ee" stop-opacity="1" />
+      <stop offset="0.6" stop-color="#3b82f6" stop-opacity="1" />
+      <stop offset="1" stop-color="#10b981" stop-opacity="1" />
+    </linearGradient>
+    <radialGradient id="g2" cx="35%" cy="25%" r="70%">
+      <stop offset="0" stop-color="#22d3ee" stop-opacity="0.35" />
+      <stop offset="1" stop-color="#000000" stop-opacity="0" />
+    </radialGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="6" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="512" height="512" rx="96" fill="#05060a" />
+  <rect width="512" height="512" rx="96" fill="url(#g2)" />
+
+  <!-- Outer frame -->
+  <rect x="40" y="40" width="432" height="432" rx="80" fill="none" stroke="url(#g1)" stroke-width="10" opacity="0.45" />
+
+  <!-- Circuit ring -->
+  <g filter="url(#glow)">
+    <path
+      d="M136 182 C190 126, 322 126, 376 182"
+      fill="none"
+      stroke="#22d3ee"
+      stroke-width="8"
+      opacity="0.9"
+      stroke-linecap="round"
+    />
+    <path
+      d="M376 182 C418 224, 418 288, 376 330"
+      fill="none"
+      stroke="#3b82f6"
+      stroke-width="8"
+      opacity="0.85"
+      stroke-linecap="round"
+    />
+    <path
+      d="M376 330 C322 386, 190 386, 136 330"
+      fill="none"
+      stroke="#10b981"
+      stroke-width="8"
+      opacity="0.75"
+      stroke-linecap="round"
+    />
+    <path
+      d="M136 330 C94 288, 94 224, 136 182"
+      fill="none"
+      stroke="#22d3ee"
+      stroke-width="8"
+      opacity="0.65"
+      stroke-linecap="round"
+    />
+  </g>
+
+  <!-- Monogram -->
+  <g>
+    <path d="M170 355 V157" stroke="#e5e7eb" stroke-width="18" stroke-linecap="round" opacity="0.35" />
+    <path d="M250 355 L250 157" stroke="#22d3ee" stroke-width="18" stroke-linecap="round" opacity="0.85" />
+    <path d="M250 250 L315 355" stroke="#3b82f6" stroke-width="16" stroke-linecap="round" opacity="0.85" />
+    <path d="M250 250 L315 157" stroke="#10b981" stroke-width="16" stroke-linecap="round" opacity="0.85" />
+  </g>
+
+  <text x="256" y="430" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" font-size="42" fill="url(#g1)" opacity="0.9">
+    ZD
+  </text>
+</svg>
+
