@@ -10,6 +10,8 @@ type Props = {
   onMinimize: () => void;
   onClose: () => void;
   onRunInTerminal: (scriptRelPath: string) => void;
+  onFocus?: () => void;
+  zIndex?: number;
 };
 
 export function CodeEditorApp({
@@ -18,7 +20,9 @@ export function CodeEditorApp({
   initialRelPath,
   onMinimize,
   onClose,
-  onRunInTerminal
+  onRunInTerminal,
+  onFocus,
+  zIndex
 }: Props) {
   const [activeRelPath, setActiveRelPath] = useState<string | null>(initialRelPath ?? null);
   const [source, setSource] = useState("");
@@ -241,7 +245,14 @@ export function CodeEditorApp({
   };
 
   return (
-    <FloatingWindow title={title} onClose={onClose} onMinimize={onMinimize} minimized={minimized}>
+    <FloatingWindow
+      title={title}
+      onClose={onClose}
+      onMinimize={onMinimize}
+      minimized={minimized}
+      onFocus={onFocus}
+      zIndex={zIndex}
+    >
       <div className="flex h-full flex-col gap-3 p-4">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">

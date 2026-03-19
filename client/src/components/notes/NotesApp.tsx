@@ -9,9 +9,19 @@ type Props = {
   initialRelPath?: string; // file inside Notes/...
   onMinimize: () => void;
   onClose: () => void;
+  onFocus?: () => void;
+  zIndex?: number;
 };
 
-export function NotesApp({ lang, minimized = false, initialRelPath, onMinimize, onClose }: Props) {
+export function NotesApp({
+  lang,
+  minimized = false,
+  initialRelPath,
+  onMinimize,
+  onClose,
+  onFocus,
+  zIndex
+}: Props) {
   const [activeRelPath, setActiveRelPath] = useState<string | null>(initialRelPath ?? null);
   const [text, setText] = useState("");
   const [savedText, setSavedText] = useState("");
@@ -72,7 +82,14 @@ export function NotesApp({ lang, minimized = false, initialRelPath, onMinimize, 
   }, [ctxOpen]);
 
   return (
-    <FloatingWindow title={title} onClose={onClose} onMinimize={onMinimize} minimized={minimized}>
+    <FloatingWindow
+      title={title}
+      onClose={onClose}
+      onMinimize={onMinimize}
+      minimized={minimized}
+      onFocus={onFocus}
+      zIndex={zIndex}
+    >
       <div className="flex h-full flex-col gap-3 p-4">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">

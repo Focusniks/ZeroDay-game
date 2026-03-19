@@ -1,10 +1,30 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useI18n } from "../hooks/useI18n";
+import { useGameConfig } from "../hooks/useGameConfig";
 import { TerminalApp } from "../components/terminal/TerminalApp";
 import { useNavigate } from "react-router-dom";
 import { SettingsApp } from "../components/settings/SettingsApp";
-import { initGameFs, listFs, mkdirFs, type FsEntry } from "../lib/gameFs";
+import { ConfirmDialog } from "../components/dialog/ConfirmDialog";
+import { TextPromptDialog } from "../components/dialog/TextPromptDialog";
+import {
+  deleteFs,
+  initGameFs,
+  listFs,
+  mkdirFs,
+  moveFs,
+  readBytesBase64Fs,
+  writeTextFs,
+  type FsEntry
+} from "../lib/gameFs";
+import {
+  CUSTOM_WALLPAPER_PREFIX,
+  DEFAULT_WALLPAPER,
+  getWallpaperBackground,
+  mimeFromRelPath,
+  parseCustomWallpaperRelPath,
+  type WallpaperId
+} from "../lib/wallpapers";
 import { FilesApp } from "../components/files/FilesApp";
 import { NotesApp } from "../components/notes/NotesApp";
 import { CodeEditorApp } from "../components/code/CodeEditorApp";
@@ -175,6 +195,7 @@ export function DashboardPage() {
   const { user, logout, wsState, wsUrl } = useAuth();
   const { t, lang } = useI18n();
   const navigate = useNavigate();
+  const { config } = useGameConfig();
 
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [terminalMinimized, setTerminalMinimized] = useState(false);
@@ -188,6 +209,44 @@ export function DashboardPage() {
     return () => window.clearInterval(id);
   }, []);
   const clockText = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+
+  const [clockMenuOpen, setClockMenuOpen] = useState(false);
+  const clockMenuRef = useRef<HTMLDivElement | null>(null);
+  const [clockMenuPos, setClockMenuPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [calendarView, setCalendarView] = useState(() => {
+    const d = new Date();
+    return { year: d.getFullYear(), month: d.getMonth() }; // month: 0..11
+  });
+
+  const customWallpaperRel = parseCustomWallpaperRelPath(config.wallpaper ?? null);
+  const builtinWallpaperId = (customWallpaperRel ? DEFAULT_WALLPAPER : ((config.wallpaper ?? DEFAULT_WALLPAPER) as WallpaperId));
+  const builtinWallpaperBackground = getWallpaperBackground(builtinWallpaperId);
+  const [customWallpaperDataUrl, setCustomWallpaperDataUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      if (!customWallpaperRel) {
+        setCustomWallpaperDataUrl(null);
+        return;
+      }
+      await initGameFs();
+      const b64 = await readBytesBase64Fs(customWallpaperRel);
+      if (cancelled) return;
+      const mime = mimeFromRelPath(customWallpaperRel);
+      setCustomWallpaperDataUrl(`data:${mime};base64,${b64}`);
+    };
+    void run().catch(() => {
+      if (!cancelled) setCustomWallpaperDataUrl(null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [customWallpaperRel]);
+
+  const desktopBackground = customWallpaperDataUrl
+    ? `url(${customWallpaperDataUrl}) center/cover no-repeat, ${builtinWallpaperBackground}`
+    : builtinWallpaperBackground;
 
   const [netMenuOpen, setNetMenuOpen] = useState(false);
   const netMenuRef = useRef<HTMLDivElement | null>(null);
@@ -204,6 +263,7 @@ export function DashboardPage() {
   const [desktopMenuOpen, setDesktopMenuOpen] = useState(false);
   const [desktopMenuPos, setDesktopMenuPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const desktopMenuRef = useRef<HTMLDivElement | null>(null);
+  const [desktopMenuTargetRelPath, setDesktopMenuTargetRelPath] = useState<string | null>(null);
 
   const [terminalInjectKey, setTerminalInjectKey] = useState(0);
   const [terminalInjectLines, setTerminalInjectLines] = useState<string[]>([]);
@@ -213,91 +273,242 @@ export function DashboardPage() {
     setTerminalInjectKey((k) => k + 1);
   };
 
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsMinimized, setSettingsMinimized] = useState(false);
+  // Window stacking / focus management (Linux-like: last focused window is on top).
+  type WindowId = "terminal" | "settings" | "files" | "notes" | "scripts" | "media";
+  const [windowZ, setWindowZ] = useState<Record<WindowId, number>>({
+    terminal: 70,
+    settings: 75,
+    files: 76,
+    notes: 77,
+    scripts: 78,
+    media: 79
+  });
+  const [activeWindowId, setActiveWindowId] = useState<WindowId>("terminal");
+  const zTopRef = useRef(90);
+  const bringToFront = (id: WindowId) => {
+    zTopRef.current += 1;
+    setWindowZ((prev) => ({ ...prev, [id]: zTopRef.current }));
+    setActiveWindowId(id);
+  };
 
-  const closeSettings = () => {
-    setSettingsOpen(false);
-    setSettingsMinimized(false);
+  type SettingsTab = "system" | "desktop" | "network" | "profile";
+  type SettingsWindowState = { id: string; initialTab: SettingsTab; minimized: boolean };
+  const [settingsWindows, setSettingsWindows] = useState<SettingsWindowState[]>([]);
+  const openSettings = (initialTab: SettingsTab = "system") => {
+    const id = makeWindowId();
+    setSettingsWindows((prev) => [...prev, { id, initialTab, minimized: false }]);
+    bringToFront("settings");
+    window.requestAnimationFrame(() => bringToFront("settings"));
   };
-  const openSettings = () => {
-    setSettingsOpen(true);
-    setSettingsMinimized(false);
+  const closeSettingsWindow = (id: string) => {
+    setSettingsWindows((prev) => prev.filter((w) => w.id !== id));
   };
-  const minimizeSettings = () => {
-    setSettingsMinimized(true);
-    setSettingsOpen(false);
+  const minimizeSettingsWindow = (id: string) => {
+    setSettingsWindows((prev) => prev.map((w) => (w.id === id ? { ...w, minimized: true } : w)));
   };
+  const focusSettingsWindow = (id: string) => {
+    bringToFront("settings");
+    setSettingsWindows((prev) => {
+      const idx = prev.findIndex((w) => w.id === id);
+      if (idx < 0 || idx === prev.length - 1) return prev;
+      const next = [...prev];
+      const [target] = next.splice(idx, 1);
+      next.push(target);
+      return next;
+    });
+  };
+  const restoreTopSettingsWindow = () => {
+    setSettingsWindows((prev) => {
+      if (!prev.length) return prev;
+      const next = [...prev];
+      const idx = [...next].reverse().findIndex((w) => w.minimized);
+      if (idx < 0) return next;
+      const realIdx = next.length - 1 - idx;
+      next[realIdx] = { ...next[realIdx], minimized: false };
+      const [target] = next.splice(realIdx, 1);
+      next.push(target);
+      return next;
+    });
+    bringToFront("settings");
+  };
+  const settingsOpen = settingsWindows.some((w) => !w.minimized);
+  const settingsMinimized = settingsWindows.some((w) => w.minimized);
+  const topSettingsWindow = settingsWindows[settingsWindows.length - 1] ?? null;
 
-  const [filesOpen, setFilesOpen] = useState(false);
-  const [filesMinimized, setFilesMinimized] = useState(false);
-  const closeFiles = () => {
-    setFilesOpen(false);
-    setFilesMinimized(false);
-  };
+  type FilesWindowState = { id: string; startRelPath: string; minimized: boolean };
+  const [filesWindows, setFilesWindows] = useState<FilesWindowState[]>([]);
+  const makeWindowId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const openFiles = (startRelPath = "") => {
-    setFilesOpen(true);
-    setFilesMinimized(false);
-    setFilesStartRelPath(startRelPath);
+    const id = makeWindowId();
+    setFilesWindows((prev) => [...prev, { id, startRelPath, minimized: false }]);
+    bringToFront("files");
+    window.requestAnimationFrame(() => bringToFront("files"));
   };
-  const [filesStartRelPath, setFilesStartRelPath] = useState("");
-  const minimizeFiles = () => {
-    setFilesMinimized(true);
-    setFilesOpen(false);
+  const closeFilesWindow = (id: string) => {
+    setFilesWindows((prev) => prev.filter((w) => w.id !== id));
   };
+  const minimizeFilesWindow = (id: string) => {
+    setFilesWindows((prev) => prev.map((w) => (w.id === id ? { ...w, minimized: true } : w)));
+  };
+  const focusFilesWindow = (id: string) => {
+    bringToFront("files");
+    setFilesWindows((prev) => {
+      const idx = prev.findIndex((w) => w.id === id);
+      if (idx < 0 || idx === prev.length - 1) return prev;
+      const next = [...prev];
+      const [target] = next.splice(idx, 1);
+      next.push(target);
+      return next;
+    });
+  };
+  const restoreTopFilesWindow = () => {
+    setFilesWindows((prev) => {
+      if (!prev.length) return prev;
+      const next = [...prev];
+      const idx = [...next].reverse().findIndex((w) => w.minimized);
+      if (idx < 0) return next;
+      const realIdx = next.length - 1 - idx;
+      next[realIdx] = { ...next[realIdx], minimized: false };
+      const [target] = next.splice(realIdx, 1);
+      next.push(target);
+      return next;
+    });
+    bringToFront("files");
+  };
+  const filesOpen = filesWindows.some((w) => !w.minimized);
+  const filesMinimized = filesWindows.some((w) => w.minimized);
+  const topFilesWindow = filesWindows[filesWindows.length - 1] ?? null;
 
-  const [notesOpen, setNotesOpen] = useState(false);
-  const [notesMinimized, setNotesMinimized] = useState(false);
-  const [notesInitialRelPath, setNotesInitialRelPath] = useState<string | undefined>(undefined);
-  const closeNotes = () => {
-    setNotesOpen(false);
-    setNotesMinimized(false);
-  };
+  type NotesWindowState = { id: string; initialRelPath?: string; minimized: boolean };
+  const [notesWindows, setNotesWindows] = useState<NotesWindowState[]>([]);
   const openNotes = (relPath?: string) => {
-    setNotesInitialRelPath(relPath);
-    setNotesOpen(true);
-    setNotesMinimized(false);
+    const id = makeWindowId();
+    setNotesWindows((prev) => [...prev, { id, initialRelPath: relPath, minimized: false }]);
+    bringToFront("notes");
+    window.requestAnimationFrame(() => bringToFront("notes"));
   };
-  const minimizeNotes = () => {
-    setNotesMinimized(true);
-    setNotesOpen(false);
+  const closeNotesWindow = (id: string) => {
+    setNotesWindows((prev) => prev.filter((w) => w.id !== id));
   };
+  const minimizeNotesWindow = (id: string) => {
+    setNotesWindows((prev) => prev.map((w) => (w.id === id ? { ...w, minimized: true } : w)));
+  };
+  const focusNotesWindow = (id: string) => {
+    bringToFront("notes");
+    setNotesWindows((prev) => {
+      const idx = prev.findIndex((w) => w.id === id);
+      if (idx < 0 || idx === prev.length - 1) return prev;
+      const next = [...prev];
+      const [target] = next.splice(idx, 1);
+      next.push(target);
+      return next;
+    });
+  };
+  const restoreTopNotesWindow = () => {
+    setNotesWindows((prev) => {
+      if (!prev.length) return prev;
+      const next = [...prev];
+      const idx = [...next].reverse().findIndex((w) => w.minimized);
+      if (idx < 0) return next;
+      const realIdx = next.length - 1 - idx;
+      next[realIdx] = { ...next[realIdx], minimized: false };
+      const [target] = next.splice(realIdx, 1);
+      next.push(target);
+      return next;
+    });
+    bringToFront("notes");
+  };
+  const notesOpen = notesWindows.some((w) => !w.minimized);
+  const notesMinimized = notesWindows.some((w) => w.minimized);
+  const topNotesWindow = notesWindows[notesWindows.length - 1] ?? null;
 
-  const [scriptsOpen, setScriptsOpen] = useState(false);
-  const [scriptsMinimized, setScriptsMinimized] = useState(false);
-  const [scriptsInitialRelPath, setScriptsInitialRelPath] = useState<string | undefined>(undefined);
-  const closeScripts = () => {
-    setScriptsOpen(false);
-    setScriptsMinimized(false);
-  };
+  type ScriptsWindowState = { id: string; initialRelPath?: string; minimized: boolean };
+  const [scriptsWindows, setScriptsWindows] = useState<ScriptsWindowState[]>([]);
   const openScripts = (relPath?: string) => {
-    setScriptsInitialRelPath(relPath);
-    setScriptsOpen(true);
-    setScriptsMinimized(false);
+    const id = makeWindowId();
+    setScriptsWindows((prev) => [...prev, { id, initialRelPath: relPath, minimized: false }]);
+    bringToFront("scripts");
+    window.requestAnimationFrame(() => bringToFront("scripts"));
   };
-  const minimizeScripts = () => {
-    setScriptsMinimized(true);
-    setScriptsOpen(false);
+  const closeScriptsWindow = (id: string) => {
+    setScriptsWindows((prev) => prev.filter((w) => w.id !== id));
   };
+  const minimizeScriptsWindow = (id: string) => {
+    setScriptsWindows((prev) => prev.map((w) => (w.id === id ? { ...w, minimized: true } : w)));
+  };
+  const focusScriptsWindow = (id: string) => {
+    bringToFront("scripts");
+    setScriptsWindows((prev) => {
+      const idx = prev.findIndex((w) => w.id === id);
+      if (idx < 0 || idx === prev.length - 1) return prev;
+      const next = [...prev];
+      const [target] = next.splice(idx, 1);
+      next.push(target);
+      return next;
+    });
+  };
+  const restoreTopScriptsWindow = () => {
+    setScriptsWindows((prev) => {
+      if (!prev.length) return prev;
+      const next = [...prev];
+      const idx = [...next].reverse().findIndex((w) => w.minimized);
+      if (idx < 0) return next;
+      const realIdx = next.length - 1 - idx;
+      next[realIdx] = { ...next[realIdx], minimized: false };
+      const [target] = next.splice(realIdx, 1);
+      next.push(target);
+      return next;
+    });
+    bringToFront("scripts");
+  };
+  const scriptsOpen = scriptsWindows.some((w) => !w.minimized);
+  const scriptsMinimized = scriptsWindows.some((w) => w.minimized);
+  const topScriptsWindow = scriptsWindows[scriptsWindows.length - 1] ?? null;
 
-  const [mediaOpen, setMediaOpen] = useState(false);
-  const [mediaMinimized, setMediaMinimized] = useState(false);
-  const [mediaInitialRelPath, setMediaInitialRelPath] = useState<string | undefined>(undefined);
-  const closeMedia = () => {
-    setMediaOpen(false);
-    setMediaMinimized(false);
-  };
+  type MediaWindowState = { id: string; initialRelPath?: string; minimized: boolean };
+  const [mediaWindows, setMediaWindows] = useState<MediaWindowState[]>([]);
   const openMedia = (relPath?: string) => {
-    setMediaInitialRelPath(relPath);
-    setMediaOpen(true);
-    setMediaMinimized(false);
+    const id = makeWindowId();
+    setMediaWindows((prev) => [...prev, { id, initialRelPath: relPath, minimized: false }]);
+    bringToFront("media");
+    window.requestAnimationFrame(() => bringToFront("media"));
   };
-  const minimizeMedia = () => {
-    setMediaMinimized(true);
-    setMediaOpen(false);
+  const closeMediaWindow = (id: string) => {
+    setMediaWindows((prev) => prev.filter((w) => w.id !== id));
   };
+  const minimizeMediaWindow = (id: string) => {
+    setMediaWindows((prev) => prev.map((w) => (w.id === id ? { ...w, minimized: true } : w)));
+  };
+  const focusMediaWindow = (id: string) => {
+    bringToFront("media");
+    setMediaWindows((prev) => {
+      const idx = prev.findIndex((w) => w.id === id);
+      if (idx < 0 || idx === prev.length - 1) return prev;
+      const next = [...prev];
+      const [target] = next.splice(idx, 1);
+      next.push(target);
+      return next;
+    });
+  };
+  const restoreTopMediaWindow = () => {
+    setMediaWindows((prev) => {
+      if (!prev.length) return prev;
+      const next = [...prev];
+      const idx = [...next].reverse().findIndex((w) => w.minimized);
+      if (idx < 0) return next;
+      const realIdx = next.length - 1 - idx;
+      next[realIdx] = { ...next[realIdx], minimized: false };
+      const [target] = next.splice(realIdx, 1);
+      next.push(target);
+      return next;
+    });
+    bringToFront("media");
+  };
+  const mediaOpen = mediaWindows.some((w) => !w.minimized);
+  const mediaMinimized = mediaWindows.some((w) => w.minimized);
+  const topMediaWindow = mediaWindows[mediaWindows.length - 1] ?? null;
 
-  const [desktopDirs, setDesktopDirs] = useState<FsEntry[]>([]);
+  const [desktopItems, setDesktopItems] = useState<FsEntry[]>([]);
 
   // Desktop icon layout (grid wrapping into columns)
   const DESK_LEFT = 20;
@@ -313,6 +524,43 @@ export function DashboardPage() {
   useEffect(() => {
     desktopIconCellsRef.current = desktopIconCells;
   }, [desktopIconCells]);
+
+  const getReservedDesktopCells = () => {
+    const { cols, rows } = getGrid();
+    const computer = { col: 0, row: 0 };
+    const trash =
+      rows > 1 ? { col: 0, row: 1 } : cols > 1 ? { col: 1, row: 0 } : { col: 0, row: 0 };
+    return { computer, trash };
+  };
+
+  // If user creates an item via RMB on the desktop, we try to place the newly created
+  // icon near the cursor cell (Linux-like behavior).
+  const [desktopCreateDesiredCell, setDesktopCreateDesiredCell] = useState<{
+    col: number;
+    row: number;
+  } | null>(null);
+
+  const [desktopSelectedRelPaths, setDesktopSelectedRelPaths] = useState<Set<string>>(() => new Set());
+  const desktopSelectedRelPathsRef = useRef(desktopSelectedRelPaths);
+  useEffect(() => {
+    desktopSelectedRelPathsRef.current = desktopSelectedRelPaths;
+  }, [desktopSelectedRelPaths]);
+
+  const [desktopSelectionRect, setDesktopSelectionRect] = useState<{
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+  } | null>(null);
+  const desktopSelectionRectRef = useRef(desktopSelectionRect);
+  useEffect(() => {
+    desktopSelectionRectRef.current = desktopSelectionRect;
+  }, [desktopSelectionRect]);
+
+  const desktopItemsRef = useRef(desktopItems);
+  useEffect(() => {
+    desktopItemsRef.current = desktopItems;
+  }, [desktopItems]);
 
   const getGrid = () => {
     const vw = window.innerWidth;
@@ -368,6 +616,43 @@ export function DashboardPage() {
     }, 2600);
   };
 
+  const [desktopInfo, setDesktopInfo] = useState<{
+    pos: { x: number; y: number };
+    title: string;
+    lines: string[];
+  } | null>(null);
+  const desktopInfoRef = useRef<HTMLDivElement | null>(null);
+
+  const [confirmState, setConfirmState] = useState<{
+    title: string;
+    message: string;
+    resolve: (value: boolean) => void;
+  } | null>(null);
+
+  const confirmAsync = (message: string) =>
+    new Promise<boolean>((resolve) => {
+      setConfirmState({
+        title: lang === "ru" ? "Подтверждение" : "Confirm",
+        message,
+        resolve
+      });
+    });
+
+  const [promptState, setPromptState] = useState<{
+    title: string;
+    defaultValue: string;
+    resolve: (value: string | null) => void;
+  } | null>(null);
+
+  const promptAsync = (title: string, defaultValue = "") =>
+    new Promise<string | null>((resolve) => {
+      setPromptState({
+        title,
+        defaultValue,
+        resolve
+      });
+    });
+
   useEffect(() => {
     if (!draggingRelPath) return;
 
@@ -385,6 +670,9 @@ export function DashboardPage() {
 
       const prev = desktopIconCellsRef.current;
       const occupied = new Map<string, string>();
+      const { computer, trash } = getReservedDesktopCells();
+      occupied.set(cellKey(computer.col, computer.row), "__computer__");
+      occupied.set(cellKey(trash.col, trash.row), "__trash__");
       for (const [r, cell] of Object.entries(prev)) {
         occupied.set(cellKey(cell.col, cell.row), r);
       }
@@ -413,17 +701,84 @@ export function DashboardPage() {
     };
   }, [draggingRelPath, lang]);
 
+  useEffect(() => {
+    if (!desktopSelectionRect) return;
+
+    const onMove = (e: PointerEvent) => {
+      setDesktopSelectionRect((prev) => {
+        if (!prev) return prev;
+        return { ...prev, x2: e.clientX, y2: e.clientY };
+      });
+    };
+
+    const onUp = () => {
+      const rect = desktopSelectionRectRef.current;
+      setDesktopSelectionRect(null);
+      if (!rect) return;
+
+      const xMin = Math.min(rect.x1, rect.x2);
+      const xMax = Math.max(rect.x1, rect.x2);
+      const yMin = Math.min(rect.y1, rect.y2);
+      const yMax = Math.max(rect.y1, rect.y2);
+
+      const w = xMax - xMin;
+      const h = yMax - yMin;
+
+      // If user just clicked (no drag), clear selection like most desktop WMs.
+      if (w < 6 && h < 6) {
+        setDesktopSelectedRelPaths(new Set());
+        return;
+      }
+
+      const next = new Set<string>();
+      const { computer, trash } = getReservedDesktopCells();
+
+      const intersects = (rx: number, ry: number, rw: number, rh: number) => {
+        return !(xMax < rx || xMin > rx + rw || yMax < ry || yMin > ry + rh);
+      };
+
+      // Reserved "Computer" and "Trash" icons.
+      {
+        const compX = DESK_LEFT + computer.col * CELL_W;
+        const compY = DESK_TOP + computer.row * CELL_H;
+        if (intersects(compX, compY, CELL_W, CELL_H)) next.add("");
+      }
+      {
+        const trashX = DESK_LEFT + trash.col * CELL_W;
+        const trashY = DESK_TOP + trash.row * CELL_H;
+        if (intersects(trashX, trashY, CELL_W, CELL_H)) next.add("Trash");
+      }
+
+      for (const item of desktopItemsRef.current) {
+        const cell = desktopIconCellsRef.current[item.relPath];
+        if (!cell) continue;
+        const ix = DESK_LEFT + cell.col * CELL_W;
+        const iy = DESK_TOP + cell.row * CELL_H;
+        if (intersects(ix, iy, CELL_W, CELL_H)) next.add(item.relPath);
+      }
+
+      setDesktopSelectedRelPaths(next);
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+  }, [desktopSelectionRect]);
+
   const reloadDesktopDirs = async () => {
     try {
       await initGameFs();
       const items = await listFs("");
       // Hide internal system folders from desktop.
-      const hidden = new Set(["Photos", "Videos", "Notes", "Scripts"]);
-      setDesktopDirs(items.filter((i) => i.kind === "dir" && !hidden.has(i.name)));
+      const hidden = new Set(["Photos", "Videos", "Notes", "Scripts", "Trash", "Wallpapers"]);
+      setDesktopItems(items.filter((i) => !hidden.has(i.name)));
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       addToast(lang === "ru" ? `FS ошибка: ${msg}` : `FS error: ${msg}`);
-      setDesktopDirs([]);
+      setDesktopItems([]);
     }
   };
 
@@ -434,23 +789,100 @@ export function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const createDesktopFolder = async () => {
+  const createDesktopFolder = async (parentRelPath: string | null = null) => {
     try {
-      const n = desktopDirs.length + 1;
+      const n = desktopItems.length + 1;
       const name = lang === "ru" ? `Папка ${n}` : `Folder ${n}`;
-      // Direct child of filesystem root.
-      await mkdirFs(name);
-      await reloadDesktopDirs();
+      const rel = parentRelPath ? `${parentRelPath}/${name}` : name;
+      await mkdirFs(rel);
+      if (!parentRelPath) {
+        await reloadDesktopDirs();
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       addToast(lang === "ru" ? `Не удалось создать папку: ${msg}` : `Failed to create folder: ${msg}`);
     }
   };
 
-  useEffect(() => {
-    if (!desktopDirs) return;
+  const sanitizeBaseName = (nameRaw: string) =>
+    nameRaw
+      .trim()
+      .replace(/[<>:"/\\|?*]+/g, "_")
+      .replace(/\.+$/g, "")
+      .trim();
 
-    const current = new Set(desktopDirs.map((d) => d.relPath));
+  const createTextFileAt = async (parentRelPath: string | null, ext: "txt" | "md") => {
+    try {
+      const n = ext === "md" ? (lang === "ru" ? "Заметка" : "Note") : (lang === "ru" ? "Текст" : "Text");
+      const name = await promptAsync(lang === "ru" ? `Имя файла (${n}).${ext}` : `File name (${n}).${ext}:`);
+      if (name === null) return;
+      const trimmed = name.trim();
+      if (!trimmed) return;
+      const base = sanitizeBaseName(name.endsWith(`.${ext}`) ? name.slice(0, -ext.length - 1) : name);
+      if (!base) return;
+      const rel = parentRelPath ? `${parentRelPath}/${base}.${ext}` : `${base}.${ext}`;
+      const initial = ext === "md" ? "# Title\n\n" : "";
+      await writeTextFs(rel, initial);
+      addToast(lang === "ru" ? "Файл создан" : "File created");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addToast(lang === "ru" ? `Ошибка создания файла: ${msg}` : `Failed to create file: ${msg}`);
+    }
+  };
+
+  const createHackFileAt = async (parentRelPath: string | null) => {
+    try {
+      const name = await promptAsync(
+        lang === "ru" ? "Имя HackScript файла (.hack):" : "HackScript file name (.hack):"
+      );
+      if (name === null) return;
+      const trimmed = name.trim();
+      if (!trimmed) return;
+      const base = sanitizeBaseName(trimmed.endsWith(".hack") ? trimmed.slice(0, -5) : trimmed);
+      if (!base) return;
+      const rel = parentRelPath ? `${parentRelPath}/${base}.hack` : `${base}.hack`;
+      const initial = `# HackScript example\nprint("Hello from HackScript")\n`;
+      await writeTextFs(rel, initial);
+      addToast(lang === "ru" ? "Скрипт создан" : "Script created");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addToast(lang === "ru" ? `Ошибка создания скрипта: ${msg}` : `Failed to create script: ${msg}`);
+    }
+  };
+
+  const moveEntryToTrash = async (relPath: string) => {
+    await initGameFs();
+    try {
+      // If the item is already in Trash - delete permanently.
+      if (relPath.startsWith("Trash/") || relPath === "Trash") {
+        await deleteFs(relPath);
+        return;
+      }
+      const base = relPath.split("/").filter(Boolean).pop() ?? relPath;
+      const dst = `Trash/${base}__${Date.now()}`;
+      await moveFs(relPath, dst);
+      if (!relPath.includes("/")) {
+        await reloadDesktopDirs();
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addToast(lang === "ru" ? `Ошибка: ${msg}` : `Error: ${msg}`);
+    }
+  };
+
+  const clearTrash = async () => {
+    await initGameFs();
+    const items = await listFs("Trash");
+    for (const it of items) {
+      await deleteFs(it.relPath);
+    }
+    addToast(lang === "ru" ? "Корзина очищена" : "Trash has been emptied");
+  };
+
+  useEffect(() => {
+    if (!desktopItems) return;
+
+    const current = new Set(desktopItems.map((d) => d.relPath));
     const prev = desktopIconCellsRef.current;
     const next: Record<string, { col: number; row: number }> = { ...prev };
 
@@ -463,15 +895,41 @@ export function DashboardPage() {
     }
 
     const { cols, rows } = getGrid();
+    const reserved = getReservedDesktopCells();
+    const reservedKeys = new Set([cellKey(reserved.computer.col, reserved.computer.row), cellKey(reserved.trash.col, reserved.trash.row)]);
+
+    for (const [rel, cell] of Object.entries(next)) {
+      if (reservedKeys.has(cellKey(cell.col, cell.row))) {
+        delete next[rel];
+        changed = true;
+      }
+    }
+
     const occupied = new Map<string, string>();
+    occupied.set(cellKey(reserved.computer.col, reserved.computer.row), "__computer__");
+    occupied.set(cellKey(reserved.trash.col, reserved.trash.row), "__trash__");
     for (const [rel, cell] of Object.entries(next)) {
       occupied.set(cellKey(cell.col, cell.row), rel);
     }
 
     let overflowCount = 0;
-    for (const d of desktopDirs) {
+    let placedFromDesiredCell = false;
+    for (const d of desktopItems) {
       if (next[d.relPath]) continue;
       let placed = false;
+
+      if (desktopCreateDesiredCell && !placedFromDesiredCell) {
+        const best = findNearestFreeCell(desktopCreateDesiredCell.col, desktopCreateDesiredCell.row, null, occupied);
+        if (best) {
+          next[d.relPath] = best;
+          occupied.set(cellKey(best.col, best.row), d.relPath);
+          placed = true;
+          changed = true;
+          placedFromDesiredCell = true;
+        }
+      }
+
+      if (placed) continue;
       for (let col = 0; col < cols; col++) {
         for (let row = 0; row < rows; row++) {
           const key = cellKey(col, row);
@@ -491,10 +949,14 @@ export function DashboardPage() {
     if (overflowCount > 0) {
       addToast(lang === "ru" ? "Нет места на рабочем столе" : "No space on the desktop");
     }
-  }, [desktopDirs, lang]);
+
+    if (placedFromDesiredCell) setDesktopCreateDesiredCell(null);
+  }, [desktopItems, lang, desktopCreateDesiredCell]);
 
   const [startSearch, setStartSearch] = useState("");
   const [otherFolderOpen, setOtherFolderOpen] = useState(false);
+  type StartGroup = "games" | "graphics" | "internet" | "office" | "science" | "sound_video" | "system";
+  const [startGroup, setStartGroup] = useState<StartGroup>("system");
 
   useEffect(() => {
     // Disable browser default context menu inside the game UI.
@@ -507,13 +969,22 @@ export function DashboardPage() {
       const el = startRef.current;
       const menuEl = desktopMenuRef.current;
       const netEl = netMenuRef.current;
+      const infoEl = desktopInfoRef.current;
+      const clockEl = clockMenuRef.current;
       const target = e.target;
       const clickedOutsideStart = el ? !(target instanceof Node && el.contains(target)) : true;
       const clickedOutsideMenu = menuEl ? !(target instanceof Node && menuEl.contains(target)) : true;
       const clickedOutsideNet = netEl ? !(target instanceof Node && netEl.contains(target)) : true;
+      const clickedOutsideInfo = infoEl ? !(target instanceof Node && infoEl.contains(target)) : true;
+      const clickedOutsideClock = clockEl ? !(target instanceof Node && clockEl.contains(target)) : true;
       if (clickedOutsideStart) setStartOpen(false);
-      if (clickedOutsideMenu) setDesktopMenuOpen(false);
+      if (clickedOutsideMenu) {
+        setDesktopMenuOpen(false);
+        setDesktopMenuTargetRelPath(null);
+      }
       if (clickedOutsideNet) setNetMenuOpen(false);
+      if (clickedOutsideInfo) setDesktopInfo(null);
+      if (clickedOutsideClock) setClockMenuOpen(false);
     };
     document.addEventListener("mousedown", onDocClick);
     return () => {
@@ -524,7 +995,15 @@ export function DashboardPage() {
 
   const exitGame = () => {
     setStartOpen(false);
-    navigate("/login");
+    void (async () => {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        await getCurrentWindow().destroy();
+      } catch {
+        // Fallback for non-Tauri environments (dev in browser).
+        window.close();
+      }
+    })();
   };
 
   const exitAccount = () => {
@@ -534,8 +1013,10 @@ export function DashboardPage() {
   };
 
   const openTerminal = () => {
+    bringToFront("terminal");
     setTerminalOpen(true);
     setTerminalMinimized(false);
+    window.requestAnimationFrame(() => bringToFront("terminal"));
   };
 
   const minimizeTerminal = () => {
@@ -562,11 +1043,12 @@ export function DashboardPage() {
     setNetMenuOpen(false);
     setStartOpen(false);
     setDesktopMenuPos({ x: e.clientX, y: e.clientY });
+    setDesktopMenuTargetRelPath(null);
     setDesktopMenuOpen(true);
   };
 
   const terminalTaskClick = () => {
-    if (terminalOpen && !terminalMinimized) {
+    if (terminalOpen && !terminalMinimized && activeWindowId === "terminal") {
       minimizeTerminal();
       return;
     }
@@ -574,43 +1056,63 @@ export function DashboardPage() {
   };
 
   const settingsTaskClick = () => {
-    if (settingsOpen && !settingsMinimized) {
-      minimizeSettings();
+    if (topSettingsWindow && !topSettingsWindow.minimized && activeWindowId === "settings") {
+      minimizeSettingsWindow(topSettingsWindow.id);
       return;
     }
-    openSettings();
+    if (settingsWindows.length) {
+      restoreTopSettingsWindow();
+      return;
+    }
+    openSettings("system");
   };
 
   const filesTaskClick = () => {
-    if (filesOpen && !filesMinimized) {
-      minimizeFiles();
+    if (topFilesWindow && !topFilesWindow.minimized && activeWindowId === "files") {
+      minimizeFilesWindow(topFilesWindow.id);
       return;
     }
-    openFiles(filesStartRelPath);
+    if (filesWindows.length) {
+      restoreTopFilesWindow();
+      return;
+    }
+    openFiles("");
   };
 
   const notesTaskClick = () => {
-    if (notesOpen && !notesMinimized) {
-      minimizeNotes();
+    if (topNotesWindow && !topNotesWindow.minimized && activeWindowId === "notes") {
+      minimizeNotesWindow(topNotesWindow.id);
       return;
     }
-    openNotes(notesInitialRelPath);
+    if (notesWindows.length) {
+      restoreTopNotesWindow();
+      return;
+    }
+    openNotes();
   };
 
   const scriptsTaskClick = () => {
-    if (scriptsOpen && !scriptsMinimized) {
-      minimizeScripts();
+    if (topScriptsWindow && !topScriptsWindow.minimized && activeWindowId === "scripts") {
+      minimizeScriptsWindow(topScriptsWindow.id);
       return;
     }
-    openScripts(scriptsInitialRelPath);
+    if (scriptsWindows.length) {
+      restoreTopScriptsWindow();
+      return;
+    }
+    openScripts();
   };
 
   const mediaTaskClick = () => {
-    if (mediaOpen && !mediaMinimized) {
-      minimizeMedia();
+    if (topMediaWindow && !topMediaWindow.minimized && activeWindowId === "media") {
+      minimizeMediaWindow(topMediaWindow.id);
       return;
     }
-    openMedia(mediaInitialRelPath);
+    if (mediaWindows.length) {
+      restoreTopMediaWindow();
+      return;
+    }
+    openMedia();
   };
 
   return (
@@ -618,11 +1120,7 @@ export function DashboardPage() {
       className="game-ui relative min-h-screen text-slate-100"
       onContextMenu={openDesktopContextMenu}
       style={{
-        background: `
-          radial-gradient(ellipse 120% 80% at 20% 0%, rgba(45, 212, 191, 0.12), transparent 50%),
-          radial-gradient(ellipse 100% 60% at 100% 100%, rgba(99, 102, 241, 0.15), transparent 45%),
-          linear-gradient(165deg, #0c1018 0%, #141a24 40%, #0d1117 100%)
-        `
+        background: desktopBackground
       }}
     >
       {/* Desktop taskbar */}
@@ -644,19 +1142,43 @@ export function DashboardPage() {
                   <div className="start-menu-left-title">{lang === "ru" ? "Приложения" : "Applications"}</div>
 
                   <div className="start-menu-left-list" role="presentation">
-                    <div className="start-menu-left-item">
+                    <div
+                      className="start-menu-left-item is-clickable"
+                      role="menuitem"
+                      onClick={() => {
+                        setStartGroup("games");
+                      }}
+                    >
                       <span className="start-menu-left-item-ico" aria-hidden="true">＋</span>
                       <span className="start-menu-left-item-text">{lang === "ru" ? "Игры" : "Games"}</span>
                     </div>
-                    <div className="start-menu-left-item">
+                    <div
+                      className="start-menu-left-item is-clickable"
+                      role="menuitem"
+                      onClick={() => {
+                        setStartGroup("graphics");
+                      }}
+                    >
                       <span className="start-menu-left-item-ico" aria-hidden="true">⬚</span>
                       <span className="start-menu-left-item-text">{lang === "ru" ? "Графика" : "Graphics"}</span>
                     </div>
-                    <div className="start-menu-left-item">
+                    <div
+                      className="start-menu-left-item is-clickable"
+                      role="menuitem"
+                      onClick={() => {
+                        setStartGroup("internet");
+                      }}
+                    >
                       <span className="start-menu-left-item-ico" aria-hidden="true">⟐</span>
                       <span className="start-menu-left-item-text">{lang === "ru" ? "Интернет" : "Internet"}</span>
                     </div>
-                    <div className="start-menu-left-item">
+                    <div
+                      className="start-menu-left-item is-clickable"
+                      role="menuitem"
+                      onClick={() => {
+                        setStartGroup("office");
+                      }}
+                    >
                       <span className="start-menu-left-item-ico" aria-hidden="true">▦</span>
                       <span className="start-menu-left-item-text">{lang === "ru" ? "Офис" : "Office"}</span>
                     </div>
@@ -722,6 +1244,34 @@ export function DashboardPage() {
                           role="menuitem"
                           onClick={() => {
                             setStartOpen(false);
+                            openFiles("");
+                          }}
+                        >
+                          <span className="start-menu-subitem-ico" aria-hidden="true">
+                            <HomeIcon />
+                          </span>
+                          <span className="start-menu-subitem-text">{lang === "ru" ? "Компьютер" : "Computer"}</span>
+                        </div>
+
+                        <div
+                          className="start-menu-subitem is-clickable"
+                          role="menuitem"
+                          onClick={() => {
+                            setStartOpen(false);
+                            openFiles("Trash");
+                          }}
+                        >
+                          <span className="start-menu-subitem-ico" aria-hidden="true">
+                            <span style={{ fontSize: 16, opacity: 0.95 }}>🗑</span>
+                          </span>
+                          <span className="start-menu-subitem-text">{lang === "ru" ? "Корзина" : "Trash"}</span>
+                        </div>
+
+                        <div
+                          className="start-menu-subitem is-clickable"
+                          role="menuitem"
+                          onClick={() => {
+                            setStartOpen(false);
                             openNotes();
                           }}
                         >
@@ -761,25 +1311,68 @@ export function DashboardPage() {
                       </div>
                     ) : null}
 
-                    <div className="start-menu-left-item">
+                    <div
+                      className="start-menu-left-item is-clickable"
+                      role="menuitem"
+                      onClick={() => {
+                        setStartOpen(false);
+                        openScripts();
+                      }}
+                    >
                       <span className="start-menu-left-item-ico" aria-hidden="true">{lang === "ru" ? "⌘" : "⌘"}</span>
                       <span className="start-menu-left-item-text">{lang === "ru" ? "Программирование" : "Programming"}</span>
                     </div>
-                    <div className="start-menu-left-item">
+                    <div
+                      className="start-menu-left-item is-clickable"
+                      role="menuitem"
+                      onClick={() => {
+                        setStartGroup("science");
+                      }}
+                    >
                       <span className="start-menu-left-item-ico" aria-hidden="true">⚗</span>
                       <span className="start-menu-left-item-text">{lang === "ru" ? "Наука" : "Science"}</span>
                     </div>
-                    <div className="start-menu-left-item">
+                    <div
+                      className="start-menu-left-item is-clickable"
+                      role="menuitem"
+                      onClick={() => {
+                        setStartGroup("sound_video");
+                      }}
+                    >
                       <span className="start-menu-left-item-ico" aria-hidden="true">▶</span>
                       <span className="start-menu-left-item-text">{lang === "ru" ? "Звук и видео" : "Sound & Video"}</span>
                     </div>
-                    <div className="start-menu-left-item">
+                    <div
+                      className="start-menu-left-item is-clickable"
+                      role="menuitem"
+                      onClick={() => {
+                        setStartOpen(false);
+                        openFiles("");
+                      }}
+                    >
                       <span className="start-menu-left-item-ico" aria-hidden="true">◷</span>
                       <span className="start-menu-left-item-text">{lang === "ru" ? "Другое" : "Other"}</span>
                     </div>
-                    <div className="start-menu-left-item">
+                    <div
+                      className="start-menu-left-item is-clickable"
+                      role="menuitem"
+                      onClick={() => {
+                        setStartGroup("system");
+                      }}
+                    >
                       <span className="start-menu-left-item-ico" aria-hidden="true">⚙</span>
                       <span className="start-menu-left-item-text">{lang === "ru" ? "Системные утилиты" : "System Tools"}</span>
+                    </div>
+                    <div
+                      className="start-menu-left-item is-clickable"
+                      role="menuitem"
+                      onClick={() => {
+                        setStartOpen(false);
+                        openSettings("system");
+                      }}
+                    >
+                      <span className="start-menu-left-item-ico" aria-hidden="true">🖼</span>
+                      <span className="start-menu-left-item-text">{lang === "ru" ? "Обои" : "Wallpapers"}</span>
                     </div>
                   </div>
                 </div>
@@ -799,6 +1392,12 @@ export function DashboardPage() {
                         const apps = [
                           { key: "terminal", label: t.dockTerminal, icon: <TerminalIcon />, action: openTerminal },
                           { key: "settings", label: t.dockSettings, icon: <GearIcon size={16} />, action: openSettings },
+                          {
+                            key: "appearance",
+                            label: lang === "ru" ? "Обои" : "Wallpapers",
+                            icon: <GearIcon size={16} />,
+                            action: () => openSettings("desktop")
+                          },
                           { key: "files", label: t.dockFiles, icon: <FilesIcon />, action: () => openFiles("") },
                           { key: "notes", label: lang === "ru" ? "Заметки" : "Notes", icon: <NoteIcon />, action: () => openNotes() },
                           { key: "scripts", label: lang === "ru" ? "Скрипты" : "Scripts", icon: <CodeIcon />, action: () => openScripts() },
@@ -832,21 +1431,73 @@ export function DashboardPage() {
                     </div>
                   ) : (
                     <div className="start-menu-places">
-                      {[
-                        { icon: <HomeIcon />, label: lang === "ru" ? "Домой" : "Home" },
-                        { icon: <FolderIcon />, label: lang === "ru" ? "Документы" : "Documents" },
-                        { icon: <DownloadIcon />, label: lang === "ru" ? "Загрузки" : "Downloads" },
-                        { icon: <MusicIcon />, label: lang === "ru" ? "Музыка" : "Music" },
-                        { icon: <ImageIcon />, label: lang === "ru" ? "Картинки" : "Pictures" },
-                        { icon: <VideoIcon />, label: lang === "ru" ? "Видео" : "Videos" }
-                      ].map((row) => (
-                        <div key={row.label} className="start-menu-place">
-                          <span className="start-menu-place-ico" aria-hidden="true">
-                            {row.icon}
-                          </span>
-                          <span className="start-menu-place-text">{row.label}</span>
-                        </div>
-                      ))}
+                      {(() => {
+                        const groupLabel: Record<StartGroup, string> = {
+                          games: lang === "ru" ? "Игры" : "Games",
+                          graphics: lang === "ru" ? "Графика" : "Graphics",
+                          internet: lang === "ru" ? "Интернет" : "Internet",
+                          office: lang === "ru" ? "Офис" : "Office",
+                          science: lang === "ru" ? "Наука" : "Science",
+                          sound_video: lang === "ru" ? "Звук и видео" : "Sound & Video",
+                          system: lang === "ru" ? "Системные утилиты" : "System tools"
+                        };
+                        const rowsByGroup: Record<
+                          StartGroup,
+                          Array<{ icon: ReactNode; label: string; action: () => void }>
+                        > = {
+                          games: [
+                            { icon: <CodeIcon />, label: lang === "ru" ? "HackScript Arena" : "HackScript Arena", action: () => openScripts() },
+                            { icon: <TerminalIcon />, label: lang === "ru" ? "CTF Терминал" : "CTF Terminal", action: () => openTerminal() }
+                          ],
+                          graphics: [
+                            { icon: <ImageIcon />, label: lang === "ru" ? "Просмотр изображений" : "Image viewer", action: () => openMedia() },
+                            { icon: <VideoIcon />, label: lang === "ru" ? "Видео-плеер" : "Video player", action: () => openMedia() }
+                          ],
+                          internet: [
+                            { icon: <TerminalIcon />, label: lang === "ru" ? "Сетевой терминал" : "Network terminal", action: () => openTerminal() },
+                            { icon: <GearIcon size={16} />, label: lang === "ru" ? "Параметры сети" : "Network settings", action: () => openSettings("network") }
+                          ],
+                          office: [
+                            { icon: <NoteIcon />, label: lang === "ru" ? "Заметки" : "Notes", action: () => openNotes() },
+                            { icon: <FilesIcon />, label: lang === "ru" ? "Файловый менеджер" : "File manager", action: () => openFiles("") }
+                          ],
+                          science: [
+                            { icon: <NoteIcon />, label: lang === "ru" ? "Лабораторный журнал" : "Lab notes", action: () => openNotes() },
+                            { icon: <CodeIcon />, label: lang === "ru" ? "Скриптовая лаборатория" : "Script lab", action: () => openScripts() }
+                          ],
+                          sound_video: [
+                            { icon: <MusicIcon />, label: lang === "ru" ? "Музыка" : "Music", action: () => openMedia() },
+                            { icon: <VideoIcon />, label: lang === "ru" ? "Видео" : "Video", action: () => openMedia() }
+                          ],
+                          system: [
+                            { icon: <GearIcon size={16} />, label: t.dockSettings, action: () => openSettings("system") },
+                            { icon: <GearIcon size={16} />, label: lang === "ru" ? "Рабочий стол" : "Desktop", action: () => openSettings("desktop") },
+                            { icon: <FilesIcon />, label: lang === "ru" ? "Компьютер" : "Computer", action: () => openFiles("") }
+                          ]
+                        };
+                        const rows = rowsByGroup[startGroup];
+                        return (
+                          <>
+                            <div className="start-menu-search-empty">{groupLabel[startGroup]}</div>
+                            {rows.map((row) => (
+                              <div
+                                key={row.label}
+                                className="start-menu-place"
+                                role="menuitem"
+                                onClick={() => {
+                                  setStartOpen(false);
+                                  row.action();
+                                }}
+                              >
+                                <span className="start-menu-place-ico" aria-hidden="true">
+                                  {row.icon}
+                                </span>
+                                <span className="start-menu-place-text">{row.label}</span>
+                              </div>
+                            ))}
+                          </>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>
@@ -902,7 +1553,9 @@ export function DashboardPage() {
               <button
                 type="button"
                 onClick={terminalTaskClick}
-                className={`taskbar-app ${terminalOpen && !terminalMinimized ? "taskbar-app--active" : ""}`}
+                className={`taskbar-app ${
+                  activeWindowId === "terminal" && terminalOpen && !terminalMinimized ? "taskbar-app--active" : ""
+                }`}
                 aria-label="Terminal"
                 title={t.dockTerminal}
               >
@@ -914,7 +1567,9 @@ export function DashboardPage() {
               <button
                 type="button"
                 onClick={settingsTaskClick}
-                className={`taskbar-app ${settingsOpen && !settingsMinimized ? "taskbar-app--active" : ""}`}
+                className={`taskbar-app ${
+                  activeWindowId === "settings" && settingsOpen && !settingsMinimized ? "taskbar-app--active" : ""
+                }`}
                 aria-label={t.dockSettings}
                 title={t.dockSettings}
               >
@@ -926,7 +1581,9 @@ export function DashboardPage() {
               <button
                 type="button"
                 onClick={filesTaskClick}
-                className={`taskbar-app ${filesOpen && !filesMinimized ? "taskbar-app--active" : ""}`}
+                className={`taskbar-app ${
+                  activeWindowId === "files" && filesOpen && !filesMinimized ? "taskbar-app--active" : ""
+                }`}
                 aria-label={lang === "ru" ? "Файлы" : "Files"}
                 title={lang === "ru" ? "Файлы" : "Files"}
               >
@@ -938,7 +1595,9 @@ export function DashboardPage() {
               <button
                 type="button"
                 onClick={notesTaskClick}
-                className={`taskbar-app ${notesOpen && !notesMinimized ? "taskbar-app--active" : ""}`}
+                className={`taskbar-app ${
+                  activeWindowId === "notes" && notesOpen && !notesMinimized ? "taskbar-app--active" : ""
+                }`}
                 aria-label={lang === "ru" ? "Заметки" : "Notes"}
                 title={lang === "ru" ? "Заметки" : "Notes"}
               >
@@ -950,7 +1609,9 @@ export function DashboardPage() {
               <button
                 type="button"
                 onClick={scriptsTaskClick}
-                className={`taskbar-app ${scriptsOpen && !scriptsMinimized ? "taskbar-app--active" : ""}`}
+                className={`taskbar-app ${
+                  activeWindowId === "scripts" && scriptsOpen && !scriptsMinimized ? "taskbar-app--active" : ""
+                }`}
                 aria-label={lang === "ru" ? "Скрипты" : "Scripts"}
                 title={lang === "ru" ? "Скрипты" : "Scripts"}
               >
@@ -962,7 +1623,9 @@ export function DashboardPage() {
               <button
                 type="button"
                 onClick={mediaTaskClick}
-                className={`taskbar-app ${mediaOpen && !mediaMinimized ? "taskbar-app--active" : ""}`}
+                className={`taskbar-app ${
+                  activeWindowId === "media" && mediaOpen && !mediaMinimized ? "taskbar-app--active" : ""
+                }`}
                 aria-label={lang === "ru" ? "Медиа" : "Media"}
                 title={lang === "ru" ? "Медиа" : "Media"}
               >
@@ -976,12 +1639,115 @@ export function DashboardPage() {
           <button
             type="button"
             className="taskbar-clock"
-            onClick={() => addToast(lang === "ru" ? `Время: ${clockText}` : `Time: ${clockText}`)}
+            onClick={(e) => {
+              const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+              setClockMenuPos({ x: rect.left, y: rect.bottom });
+              setCalendarView({ year: now.getFullYear(), month: now.getMonth() });
+              setClockMenuOpen(true);
+              setNetMenuOpen(false);
+              setDesktopMenuOpen(false);
+            }}
             aria-label={lang === "ru" ? "Часы" : "Clock"}
             title={lang === "ru" ? "Системное время" : "System time"}
           >
             {clockText}
           </button>
+
+          {clockMenuOpen ? (
+            <div
+              ref={clockMenuRef}
+              className="clock-popover"
+              style={{
+                left: Math.min(clockMenuPos.x, window.innerWidth - 320),
+                top: Math.min(clockMenuPos.y, window.innerHeight - 380)
+              }}
+              role="dialog"
+              aria-label={lang === "ru" ? "Календарь" : "Calendar"}
+            >
+              {(() => {
+                const monthNamesRu = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
+                const monthNamesEn = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+                const monthNames = lang === "ru" ? monthNamesRu : monthNamesEn;
+                const weekdayLabels = lang === "ru" ? ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"] : ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
+
+                const year = calendarView.year;
+                const month = calendarView.month;
+                const first = new Date(year, month, 1);
+                const startOffset = (first.getDay() + 6) % 7; // Monday first
+                const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+                const today = now;
+                const todayDay = today.getDate();
+                const todayMonth = today.getMonth();
+                const todayYear = today.getFullYear();
+
+                const cells = Array.from({ length: 42 }, (_, idx) => {
+                  const dayNum = idx - startOffset + 1;
+                  if (dayNum < 1 || dayNum > daysInMonth) return null;
+                  const isToday = todayYear === year && todayMonth === month && dayNum === todayDay;
+                  return (
+                    <button
+                      key={idx}
+                      type="button"
+                      className={`clock-day ${isToday ? "clock-day--today" : ""}`}
+                      onClick={() => {
+                        // We don't need persistence, but clicking should feel interactive.
+                        setCalendarView((v) => ({ ...v }));
+                      }}
+                    >
+                      {dayNum}
+                    </button>
+                  );
+                });
+
+                return (
+                  <>
+                    <div className="clock-popover-header">
+                      <button
+                        type="button"
+                        className="clock-nav-btn"
+                        onClick={() => {
+                          const d = new Date(year, month - 1, 1);
+                          setCalendarView({ year: d.getFullYear(), month: d.getMonth() });
+                        }}
+                        aria-label={lang === "ru" ? "Предыдущий месяц" : "Previous month"}
+                      >
+                        ‹
+                      </button>
+                      <div className="clock-month-label">
+                        {monthNames[month]} {year}
+                      </div>
+                      <button
+                        type="button"
+                        className="clock-nav-btn"
+                        onClick={() => {
+                          const d = new Date(year, month + 1, 1);
+                          setCalendarView({ year: d.getFullYear(), month: d.getMonth() });
+                        }}
+                        aria-label={lang === "ru" ? "Следующий месяц" : "Next month"}
+                      >
+                        ›
+                      </button>
+                    </div>
+
+                    <div className="clock-popover-time">
+                      <span className="clock-time">{clockText}</span>
+                    </div>
+
+                    <div className="clock-weekdays">
+                      {weekdayLabels.map((w) => (
+                        <div key={w} className="clock-weekday">
+                          {w}
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="clock-days-grid">{cells}</div>
+                  </>
+                );
+              })()}
+            </div>
+          ) : null}
 
           <div className="taskbar-right-icons">
             <button
@@ -1009,31 +1775,7 @@ export function DashboardPage() {
               <GearIcon size={18} />
             </button>
 
-            <button
-              type="button"
-              className="taskbar-app"
-              onClick={() => {
-                setNetMenuOpen(false);
-                exitAccount();
-              }}
-              aria-label={lang === "ru" ? "Выйти" : "Log out"}
-              title={lang === "ru" ? "Выйти" : "Log out"}
-            >
-              <DoorIcon />
-            </button>
-
-            <button
-              type="button"
-              className="taskbar-app"
-              onClick={() => {
-                setNetMenuOpen(false);
-                exitGame();
-              }}
-              aria-label={lang === "ru" ? "Выход" : "Exit"}
-              title={lang === "ru" ? "Выход" : "Exit"}
-            >
-              <PowerIcon />
-            </button>
+            {/* Exit/Logout buttons removed (handled via system UI), see Start menu / dialogs. */}
           </div>
 
           {netMenuOpen ? (
@@ -1062,6 +1804,19 @@ export function DashboardPage() {
                   role="menuitem"
                 >
                   {lang === "ru" ? "Проверить" : "Check"}
+                </button>
+
+                <button
+                  type="button"
+                  className="taskbar-net-menu-item"
+                  onClick={() => {
+                    setNetMenuOpen(false);
+                    addToast(lang === "ru" ? "Переподключение..." : "Reconnecting...");
+                    window.setTimeout(() => window.location.reload(), 250);
+                  }}
+                  role="menuitem"
+                >
+                  {lang === "ru" ? "Переподключить" : "Reconnect"}
                 </button>
 
                 <button
@@ -1105,34 +1860,380 @@ export function DashboardPage() {
           role="menu"
           aria-label="desktop context menu"
         >
-          <div
-            className="desktop-ctx-item"
-            role="menuitem"
-            onClick={() => {
-              setDesktopMenuOpen(false);
-              void createDesktopFolder();
-            }}
-          >
-            <span className="desktop-ctx-ico" aria-hidden="true"><span style={{ fontSize: 16, opacity: 0.95 }}>＋</span></span>
-            <span>{lang === "ru" ? "Создать папку" : "New folder"}</span>
-          </div>
-          <div
-            className="desktop-ctx-item"
-            role="menuitem"
-            onClick={() => {
-              setDesktopMenuOpen(false);
-              openSettings();
-            }}
-          >
-            <span className="desktop-ctx-ico" aria-hidden="true"><span style={{ fontSize: 16, opacity: 0.95 }}>⚙</span></span>
-            <span>{lang === "ru" ? "Свойства" : "Properties"}</span>
-          </div>
+          {desktopMenuTargetRelPath !== null ? (
+            <>
+              <div
+                className="desktop-ctx-item"
+                role="menuitem"
+                onClick={() => {
+                  const rel = desktopMenuTargetRelPath;
+                  if (rel === null) return;
+                  const entry = desktopItems.find((d) => d.relPath === rel) ?? null;
+                  setDesktopMenuOpen(false);
+                  setDesktopMenuTargetRelPath(null);
+
+                  if (rel === "") {
+                    openFiles("");
+                    return;
+                  }
+                  if (!entry && rel === "Trash") {
+                    openFiles("Trash");
+                    return;
+                  }
+                  if (!entry) return;
+
+                  if (entry.kind === "dir") {
+                    openFiles(entry.relPath);
+                    return;
+                  }
+
+                  const ext = (entry.ext ?? "").toLowerCase();
+                  if (ext === "txt" || ext === "md") openNotes(entry.relPath);
+                  else if (ext === "hack") openScripts(entry.relPath);
+                  else if (["png", "jpg", "jpeg", "webp", "gif", "mp4", "webm", "ogg"].some((x) => ext.endsWith(x))) {
+                    openMedia(entry.relPath);
+                  } else {
+                    const parent = entry.relPath.split("/").filter(Boolean).slice(0, -1).join("/");
+                    openFiles(parent);
+                  }
+                }}
+              >
+                <span className="desktop-ctx-ico" aria-hidden="true">▶</span>
+                <span>{lang === "ru" ? "Открыть" : "Open"}</span>
+              </div>
+              <div
+                className="desktop-ctx-item"
+                role="menuitem"
+                onClick={() => {
+                  const rel = desktopMenuTargetRelPath;
+                  if (rel === null) return;
+                  const entry = desktopItems.find((d) => d.relPath === rel) ?? null;
+                  const parentDir =
+                    entry?.kind === "file"
+                      ? entry.relPath.split("/").filter(Boolean).slice(0, -1).join("/")
+                      : rel;
+
+                  setDesktopMenuOpen(false);
+                  setDesktopMenuTargetRelPath(null);
+                  void createDesktopFolder(parentDir);
+                }}
+              >
+                <span className="desktop-ctx-ico" aria-hidden="true"><span style={{ fontSize: 16, opacity: 0.95 }}>＋</span></span>
+                <span>{lang === "ru" ? "Создать папку" : "New folder"}</span>
+              </div>
+              <div
+                className="desktop-ctx-item"
+                role="menuitem"
+                onClick={() => {
+                  const rel = desktopMenuTargetRelPath;
+                  if (rel === null) return;
+                  const entry = desktopItems.find((d) => d.relPath === rel) ?? null;
+                  const parentDir =
+                    entry?.kind === "file"
+                      ? entry.relPath.split("/").filter(Boolean).slice(0, -1).join("/")
+                      : rel;
+
+                  setDesktopMenuOpen(false);
+                  setDesktopMenuTargetRelPath(null);
+                  void createTextFileAt(parentDir, "txt");
+                }}
+              >
+                <span className="desktop-ctx-ico" aria-hidden="true">●</span>
+                <span>{lang === "ru" ? "Создать текстовый файл" : "New text file"}</span>
+              </div>
+              <div
+                className="desktop-ctx-item"
+                role="menuitem"
+                onClick={() => {
+                  const rel = desktopMenuTargetRelPath;
+                  if (rel === null) return;
+                  const entry = desktopItems.find((d) => d.relPath === rel) ?? null;
+                  const parentDir =
+                    entry?.kind === "file"
+                      ? entry.relPath.split("/").filter(Boolean).slice(0, -1).join("/")
+                      : rel;
+
+                  setDesktopMenuOpen(false);
+                  setDesktopMenuTargetRelPath(null);
+                  void createHackFileAt(parentDir);
+                }}
+              >
+                <span className="desktop-ctx-ico" aria-hidden="true">⌁</span>
+                <span>{lang === "ru" ? "Создать HackScript" : "New HackScript"}</span>
+              </div>
+              <div
+                className="desktop-ctx-item"
+                role="menuitem"
+                onClick={() => {
+                  const rel = desktopMenuTargetRelPath;
+                  if (!rel || rel === "Trash") return;
+                  setDesktopMenuOpen(false);
+                  setDesktopMenuTargetRelPath(null);
+                  void (async () => {
+                    const base = rel.split("/").filter(Boolean).pop() ?? "";
+                    const parent = rel.includes("/") ? rel.split("/").filter(Boolean).slice(0, -1).join("/") : "";
+                    const newName = await promptAsync(
+                      lang === "ru" ? `Новое имя для (${base})` : `New name for (${base})`,
+                      base
+                    );
+                    if (newName === null) return;
+                    const safe = sanitizeBaseName(newName);
+                    if (!safe) return;
+                    const dst = parent ? `${parent}/${safe}` : safe;
+                    await moveFs(rel, dst);
+                    if (!parent) await reloadDesktopDirs();
+                  })().catch((e) => {
+                    const msg = e instanceof Error ? e.message : String(e);
+                    addToast(lang === "ru" ? `Ошибка переименования: ${msg}` : `Rename failed: ${msg}`);
+                  });
+                }}
+              >
+                <span className="desktop-ctx-ico" aria-hidden="true">✎</span>
+                <span>{lang === "ru" ? "Переименовать" : "Rename"}</span>
+              </div>
+              {desktopMenuTargetRelPath === "Trash" ? (
+                <div
+                  className="desktop-ctx-item"
+                  role="menuitem"
+                  onClick={() => {
+                    setDesktopMenuOpen(false);
+                    setDesktopMenuTargetRelPath(null);
+                    void (async () => {
+                      const ok = await confirmAsync(
+                        lang === "ru" ? "Очистить корзину?" : "Empty trash?"
+                      );
+                      if (!ok) return;
+                      await clearTrash();
+                    })().catch((e) => {
+                      const msg = e instanceof Error ? e.message : String(e);
+                      addToast(lang === "ru" ? `Ошибка: ${msg}` : `Error: ${msg}`);
+                    });
+                  }}
+                >
+                  <span className="desktop-ctx-ico" aria-hidden="true">🧹</span>
+                  <span>{lang === "ru" ? "Очистить корзину" : "Empty Trash"}</span>
+                </div>
+              ) : (
+                <div
+                  className="desktop-ctx-item"
+                  role="menuitem"
+                  onClick={() => {
+                    const rel = desktopMenuTargetRelPath;
+                    if (!rel) return;
+                    setDesktopMenuOpen(false);
+                    setDesktopMenuTargetRelPath(null);
+                    void (async () => {
+                      const ok = await confirmAsync(lang === "ru" ? `Удалить «${rel}»?` : `Delete «${rel}»?`);
+                      if (!ok) return;
+                      await moveEntryToTrash(rel);
+                    })().catch((e) => {
+                      const msg = e instanceof Error ? e.message : String(e);
+                      addToast(lang === "ru" ? `Ошибка удаления: ${msg}` : `Delete failed: ${msg}`);
+                    });
+                  }}
+                >
+                  <span className="desktop-ctx-ico" aria-hidden="true">🗑</span>
+                  <span>{lang === "ru" ? "Удалить" : "Delete"}</span>
+                </div>
+              )}
+              <div
+                className="desktop-ctx-item"
+                role="menuitem"
+                onClick={() => {
+                  const rel = desktopMenuTargetRelPath;
+                  if (rel === null) return;
+                  const entry = desktopItems.find((d) => d.relPath === rel) ?? null;
+                  const pathText = rel === "" ? "/" : rel;
+                  const lines = [
+                    lang === "ru" ? `Путь: ${pathText}` : `Path: ${pathText}`
+                  ];
+                  if (entry) {
+                    lines.push(
+                      lang === "ru"
+                        ? `Тип: ${entry.kind === "dir" ? "Папка" : "Файл"}${entry.ext ? `.${entry.ext}` : ""}`
+                        : `Type: ${entry.kind === "dir" ? "Folder" : "File"}${entry.ext ? `.${entry.ext}` : ""}`
+                    );
+                    lines.push(lang === "ru" ? `Размер: ${entry.size} байт` : `Size: ${entry.size} bytes`);
+                  } else if (rel === "Trash") {
+                    lines.push(lang === "ru" ? "Тип: Корзина" : "Type: Trash");
+                  }
+
+                  setDesktopMenuOpen(false);
+                  setDesktopMenuTargetRelPath(null);
+                  setDesktopInfo({
+                    pos: desktopMenuPos,
+                    title: lang === "ru" ? "Свойства" : "Properties",
+                    lines
+                  });
+                }}
+              >
+                <span className="desktop-ctx-ico" aria-hidden="true">ℹ</span>
+                <span>{lang === "ru" ? "Свойства" : "Properties"}</span>
+              </div>
+            </>
+          ) : (
+            <>
+              <div
+                className="desktop-ctx-item"
+                role="menuitem"
+                onClick={() => {
+                  setDesktopMenuOpen(false);
+                  setDesktopMenuTargetRelPath(null);
+                  setDesktopCreateDesiredCell({
+                    col: Math.round((desktopMenuPos.x - DESK_LEFT) / CELL_W),
+                    row: Math.round((desktopMenuPos.y - DESK_TOP) / CELL_H)
+                  });
+                  void createDesktopFolder(null);
+                }}
+              >
+                <span className="desktop-ctx-ico" aria-hidden="true"><span style={{ fontSize: 16, opacity: 0.95 }}>＋</span></span>
+                <span>{lang === "ru" ? "Создать папку" : "New folder"}</span>
+              </div>
+              <div
+                className="desktop-ctx-item"
+                role="menuitem"
+                onClick={() => {
+                  setDesktopMenuOpen(false);
+                  setDesktopMenuTargetRelPath(null);
+                  void createTextFileAt(null, "txt");
+                }}
+              >
+                <span className="desktop-ctx-ico" aria-hidden="true">●</span>
+                <span>{lang === "ru" ? "Создать текстовый файл" : "New text file"}</span>
+              </div>
+              <div
+                className="desktop-ctx-item"
+                role="menuitem"
+                onClick={() => {
+                  setDesktopMenuOpen(false);
+                  setDesktopMenuTargetRelPath(null);
+                  void createHackFileAt(null);
+                }}
+              >
+                <span className="desktop-ctx-ico" aria-hidden="true">⌁</span>
+                <span>{lang === "ru" ? "Создать HackScript" : "New HackScript"}</span>
+              </div>
+              <div
+                className="desktop-ctx-item"
+                role="menuitem"
+                onClick={() => {
+                  setDesktopMenuOpen(false);
+                  setDesktopMenuTargetRelPath(null);
+                  openSettings("system");
+                }}
+              >
+                <span className="desktop-ctx-ico" aria-hidden="true"><span style={{ fontSize: 16, opacity: 0.95 }}>⚙</span></span>
+                <span>{lang === "ru" ? "Свойства" : "Properties"}</span>
+              </div>
+            </>
+          )}
         </div>
       ) : null}
 
       {/* Desktop icons */}
-      <div className="desktop-icons-layer">
-        {desktopDirs.map((f) => {
+      <div
+        className="desktop-icons-layer"
+        onPointerDown={(e) => {
+          if (e.button !== 0) return;
+          if (draggingRelPath) return;
+          const target = e.target as HTMLElement | null;
+          if (target?.closest(".desktop-folder-icon")) return;
+
+          setDesktopMenuOpen(false);
+          setNetMenuOpen(false);
+          setStartOpen(false);
+
+          setDesktopSelectionRect({
+            x1: e.clientX,
+            y1: e.clientY,
+            x2: e.clientX,
+            y2: e.clientY
+          });
+        }}
+      >
+        {(() => {
+          const { computer, trash } = getReservedDesktopCells();
+          const computerLeft = DESK_LEFT + computer.col * CELL_W;
+          const computerTop = DESK_TOP + computer.row * CELL_H;
+          const trashLeft = DESK_LEFT + trash.col * CELL_W;
+          const trashTop = DESK_TOP + trash.row * CELL_H;
+
+          return (
+            <>
+              <div
+                className={`desktop-folder-icon ${
+                  desktopSelectedRelPaths.has("") ? "desktop-folder-icon--selected" : ""
+                }`}
+                style={{ left: computerLeft, top: computerTop, zIndex: 10 }}
+                onDoubleClick={() => openFiles("")}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setDesktopMenuTargetRelPath("");
+                  setDesktopMenuPos({ x: e.clientX, y: e.clientY });
+                  setDesktopMenuOpen(true);
+                }}
+                onPointerDown={(e) => {
+                  if (e.button !== 0) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setDesktopSelectedRelPaths((prev) => {
+                    const next = new Set(prev);
+                    if (e.ctrlKey) {
+                      if (next.has("")) next.delete("");
+                      else next.add("");
+                    } else {
+                      next.clear();
+                      next.add("");
+                    }
+                    return next;
+                  });
+                }}
+              >
+                <span className="desktop-folder-ico" aria-hidden="true">
+                  <span style={{ fontSize: 18, opacity: 0.95 }}>💻</span>
+                </span>
+                <span className="desktop-folder-name">{lang === "ru" ? "Компьютер" : "Computer"}</span>
+              </div>
+              <div
+                className={`desktop-folder-icon ${
+                  desktopSelectedRelPaths.has("Trash") ? "desktop-folder-icon--selected" : ""
+                }`}
+                style={{ left: trashLeft, top: trashTop, zIndex: 10 }}
+                onDoubleClick={() => openFiles("Trash")}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setDesktopMenuTargetRelPath("Trash");
+                  setDesktopMenuPos({ x: e.clientX, y: e.clientY });
+                  setDesktopMenuOpen(true);
+                }}
+                onPointerDown={(e) => {
+                  if (e.button !== 0) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setDesktopSelectedRelPaths((prev) => {
+                    const next = new Set(prev);
+                    if (e.ctrlKey) {
+                      if (next.has("Trash")) next.delete("Trash");
+                      else next.add("Trash");
+                    } else {
+                      next.clear();
+                      next.add("Trash");
+                    }
+                    return next;
+                  });
+                }}
+              >
+                <span className="desktop-folder-ico" aria-hidden="true">
+                  <span style={{ fontSize: 18, opacity: 0.95 }}>🗑</span>
+                </span>
+                <span className="desktop-folder-name">{lang === "ru" ? "Корзина" : "Trash"}</span>
+              </div>
+            </>
+          );
+        })()}
+        {desktopItems.map((f) => {
           const cell = desktopIconCells[ f.relPath ];
           if (!cell) return null;
           const isDragging = draggingRelPath === f.relPath && dragPreviewPos;
@@ -1142,18 +2243,57 @@ export function DashboardPage() {
           return (
             <div
               key={f.relPath}
-              className="desktop-folder-icon"
+              className={`desktop-folder-icon ${
+                desktopSelectedRelPaths.has(f.relPath) ? "desktop-folder-icon--selected" : ""
+              }`}
               style={{
                 left,
                 top,
                 zIndex: isDragging ? 120 : 10
               }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setDesktopMenuTargetRelPath(f.relPath);
+                setDesktopMenuPos({ x: e.clientX, y: e.clientY });
+                setDesktopMenuOpen(true);
+                setStartOpen(false);
+                setNetMenuOpen(false);
+              }}
               onDoubleClick={() => {
                 if (draggingRelPath) return;
-                openFiles(f.relPath);
+                if (f.kind === "dir") {
+                  openFiles(f.relPath);
+                  return;
+                }
+                const ext = (f.ext ?? "").toLowerCase();
+                if (ext === "txt" || ext === "md") {
+                  openNotes(f.relPath);
+                } else if (ext === "hack") {
+                  openScripts(f.relPath);
+                } else if (["png", "jpg", "jpeg", "webp", "gif", "mp4", "webm", "ogg"].some((x) => ext.endsWith(x))) {
+                  openMedia(f.relPath);
+                } else {
+                  const parent = f.relPath.split("/").filter(Boolean).slice(0, -1).join("/");
+                  openFiles(parent);
+                }
               }}
               onPointerDown={(e) => {
                 if (e.button !== 0) return;
+
+                // Selection (Linux-like): click selects; Ctrl toggles.
+                setDesktopSelectedRelPaths((prev) => {
+                  const next = new Set(prev);
+                  if (e.ctrlKey) {
+                    if (next.has(f.relPath)) next.delete(f.relPath);
+                    else next.add(f.relPath);
+                  } else {
+                    next.clear();
+                    next.add(f.relPath);
+                  }
+                  return next;
+                });
+
                 const c = desktopIconCellsRef.current[f.relPath];
                 if (!c) return;
                 const startLeft = DESK_LEFT + c.col * CELL_W;
@@ -1167,13 +2307,86 @@ export function DashboardPage() {
               }}
             >
               <span className="desktop-folder-ico" aria-hidden="true">
-                <FolderIcon />
+                {f.kind === "dir" ? (
+                  <FolderIcon />
+                ) : (
+                  <span style={{ fontSize: 11, opacity: 0.95 }}>
+                    {(f.ext ? `.${f.ext}` : "").slice(0, 6).toUpperCase()}
+                  </span>
+                )}
               </span>
               <span className="desktop-folder-name">{f.name}</span>
             </div>
           );
         })}
       </div>
+
+      {desktopSelectionRect ? (
+        <div
+          className="desktop-selection-rect"
+          style={{
+            left: Math.min(desktopSelectionRect.x1, desktopSelectionRect.x2),
+            top: Math.min(desktopSelectionRect.y1, desktopSelectionRect.y2),
+            width: Math.abs(desktopSelectionRect.x2 - desktopSelectionRect.x1),
+            height: Math.abs(desktopSelectionRect.y2 - desktopSelectionRect.y1)
+          }}
+        />
+      ) : null}
+
+      {desktopInfo ? (
+        <div
+          ref={desktopInfoRef}
+          className="desktop-info-popover"
+          style={{
+            left: Math.min(desktopInfo.pos.x, window.innerWidth - 260),
+            top: Math.min(desktopInfo.pos.y, window.innerHeight - 200)
+          }}
+          role="dialog"
+          aria-label={desktopInfo.title}
+        >
+          <div className="desktop-info-title">{desktopInfo.title}</div>
+          <div className="desktop-info-lines">
+            {desktopInfo.lines.map((l, idx) => (
+              <div key={`${idx}-${l}`} className="desktop-info-line">
+                {l}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      <ConfirmDialog
+        open={Boolean(confirmState)}
+        title={confirmState?.title ?? ""}
+        message={confirmState?.message ?? ""}
+        danger
+        confirmLabel={lang === "ru" ? "Удалить" : "Delete"}
+        cancelLabel={lang === "ru" ? "Отмена" : "Cancel"}
+        onConfirm={() => {
+          const res = confirmState?.resolve;
+          setConfirmState(null);
+          res?.(true);
+        }}
+        onCancel={() => {
+          const res = confirmState?.resolve;
+          setConfirmState(null);
+          res?.(false);
+        }}
+      />
+
+      <TextPromptDialog
+        open={Boolean(promptState)}
+        title={promptState?.title ?? ""}
+        defaultValue={promptState?.defaultValue ?? ""}
+        placeholder={lang === "ru" ? "Введите значение" : "Enter value"}
+        okLabel={lang === "ru" ? "ОК" : "OK"}
+        cancelLabel={lang === "ru" ? "Отмена" : "Cancel"}
+        onSubmit={(v) => {
+          const res = promptState?.resolve;
+          setPromptState(null);
+          res?.(v);
+        }}
+      />
 
       {/* In-game notifications */}
       {toasts.length ? (
@@ -1186,49 +2399,63 @@ export function DashboardPage() {
         </div>
       ) : null}
 
-      {/* Settings app */}
-      {settingsOpen || settingsMinimized ? (
+      {/* Settings app windows */}
+      {settingsWindows.map((w, idx) => (
         <SettingsApp
+          key={w.id}
           lang={lang}
-          onClose={closeSettings}
-          onMinimize={minimizeSettings}
-          minimized={settingsMinimized && !settingsOpen}
+          onClose={() => closeSettingsWindow(w.id)}
+          onMinimize={() => minimizeSettingsWindow(w.id)}
+          minimized={w.minimized}
+          initialTab={w.initialTab}
+          onFocus={() => focusSettingsWindow(w.id)}
+          zIndex={windowZ.settings + idx}
         />
-      ) : null}
+      ))}
 
-      {/* Files app */}
-      {filesOpen || filesMinimized ? (
+      {/* Files app windows */}
+      {filesWindows.map((w, idx) => (
         <FilesApp
+          key={w.id}
           lang={lang}
-          startRelPath={filesStartRelPath}
-          onMinimize={minimizeFiles}
-          onClose={closeFiles}
-          minimized={filesMinimized && !filesOpen}
+          startRelPath={w.startRelPath}
+          onMinimize={() => minimizeFilesWindow(w.id)}
+          onClose={() => closeFilesWindow(w.id)}
+          minimized={w.minimized}
+            diskCapacityMb={user?.disk_capacity_mb}
           onOpenNotes={(relPath) => openNotes(relPath)}
           onOpenScript={(relPath) => openScripts(relPath)}
           onOpenMedia={(relPath) => openMedia(relPath)}
+          onFocus={() => focusFilesWindow(w.id)}
+          zIndex={windowZ.files + idx}
         />
-      ) : null}
+      ))}
 
-      {/* Notes app */}
-      {notesOpen || notesMinimized ? (
+      {/* Notes app windows */}
+      {notesWindows.map((w, idx) => (
         <NotesApp
+          key={w.id}
           lang={lang}
-          initialRelPath={notesInitialRelPath}
-          onMinimize={minimizeNotes}
-          onClose={closeNotes}
-          minimized={notesMinimized && !notesOpen}
+          initialRelPath={w.initialRelPath}
+          onMinimize={() => minimizeNotesWindow(w.id)}
+          onClose={() => closeNotesWindow(w.id)}
+          minimized={w.minimized}
+          onFocus={() => focusNotesWindow(w.id)}
+          zIndex={windowZ.notes + idx}
         />
-      ) : null}
+      ))}
 
-      {/* Code editor app */}
-      {scriptsOpen || scriptsMinimized ? (
+      {/* Code editor app windows */}
+      {scriptsWindows.map((w, idx) => (
         <CodeEditorApp
+          key={w.id}
           lang={lang}
-          initialRelPath={scriptsInitialRelPath}
-          onMinimize={minimizeScripts}
-          onClose={closeScripts}
-          minimized={scriptsMinimized && !scriptsOpen}
+          initialRelPath={w.initialRelPath}
+          onMinimize={() => minimizeScriptsWindow(w.id)}
+          onClose={() => closeScriptsWindow(w.id)}
+          minimized={w.minimized}
+          onFocus={() => focusScriptsWindow(w.id)}
+          zIndex={windowZ.scripts + idx}
           onRunInTerminal={(scriptRelPath) => {
             openTerminal();
             window.dispatchEvent(
@@ -1238,18 +2465,21 @@ export function DashboardPage() {
             );
           }}
         />
-      ) : null}
+      ))}
 
-      {/* Media app */}
-      {mediaOpen || mediaMinimized ? (
+      {/* Media app windows */}
+      {mediaWindows.map((w, idx) => (
         <MediaApp
+          key={w.id}
           lang={lang}
-          initialRelPath={mediaInitialRelPath}
-          onMinimize={minimizeMedia}
-          onClose={closeMedia}
-          minimized={mediaMinimized && !mediaOpen}
+          initialRelPath={w.initialRelPath}
+          onMinimize={() => minimizeMediaWindow(w.id)}
+          onClose={() => closeMediaWindow(w.id)}
+          minimized={w.minimized}
+          onFocus={() => focusMediaWindow(w.id)}
+          zIndex={windowZ.media + idx}
         />
-      ) : null}
+      ))}
 
       {/* Terminal window */}
       {terminalOpen || terminalMinimized ? (
@@ -1263,6 +2493,8 @@ export function DashboardPage() {
           minimized={terminalMinimized && !terminalOpen}
           injectKey={terminalInjectKey}
           injectLines={terminalInjectLines}
+          onFocus={() => bringToFront("terminal")}
+          zIndex={windowZ.terminal}
         />
       ) : null}
     </div>

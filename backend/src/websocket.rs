@@ -28,6 +28,9 @@ pub enum WsMessage {
         email: String,
         password: String,
     },
+    Authorize {
+        token: String,
+    },
     AuthSuccess {
         token: String,
         user: User,
@@ -51,6 +54,8 @@ pub struct User {
     pub ip_address: String,
     pub level: i32,
     pub xp: i32,
+    pub reputation: i32,
+    pub disk_capacity_mb: i32,
 }
 
 #[derive(Deserialize, sqlx::FromRow)]
@@ -63,6 +68,7 @@ struct DbUser {
     level: i32,
     xp: i32,
     reputation: i32,
+    disk_capacity_mb: i32,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -127,6 +133,17 @@ async fn handle_connection(stream: TcpStream, peer: SocketAddr, pool: PgPool, jw
                     Ok(WsMessage::Login { email, password }) => {
                         match login_user(&pool, &jwt_secret, &email, &password).await {
                             Ok((token, user)) => WsMessage::AuthSuccess { token, user },
+                            Err(e) => WsMessage::AuthError {
+                                message: e.to_string(),
+                            },
+                        }
+                    }
+                    Ok(WsMessage::Authorize { token }) => {
+                        match authorize_user(&pool, &jwt_secret, &token).await {
+                            Ok(user) => WsMessage::AuthSuccess {
+                                token: token.to_string(),
+                                user,
+                            },
                             Err(e) => WsMessage::AuthError {
                                 message: e.to_string(),
                             },
@@ -202,7 +219,7 @@ pub async fn register_user(
         r#"
         INSERT INTO users (username, email, password_hash, ip_address)
         VALUES ($1, $2, $3, $4)
-        RETURNING id, username, email, password_hash, ip_address, level, xp, reputation
+        RETURNING id, username, email, password_hash, ip_address, level, xp, reputation, disk_capacity_mb
         "#,
     )
     .bind(username)
@@ -237,7 +254,7 @@ pub async fn login_user(
     let db_user = if is_email {
         sqlx::query_as::<_, DbUser>(
             r#"
-            SELECT id, username, email, password_hash, ip_address, level, xp, reputation
+            SELECT id, username, email, password_hash, ip_address, level, xp, reputation, disk_capacity_mb
             FROM users
             WHERE email = $1
             "#,
@@ -248,7 +265,7 @@ pub async fn login_user(
     } else {
         sqlx::query_as::<_, DbUser>(
             r#"
-            SELECT id, username, email, password_hash, ip_address, level, xp, reputation
+            SELECT id, username, email, password_hash, ip_address, level, xp, reputation, disk_capacity_mb
             FROM users
             WHERE username = $1
             "#,
@@ -271,6 +288,37 @@ pub async fn login_user(
 
     let token = generate_jwt(db_user.id, jwt_secret)?;
     Ok((token, to_public_user(db_user)))
+}
+
+async fn authorize_user(pool: &PgPool, jwt_secret: &str, token: &str) -> anyhow::Result<User> {
+    let token = token.trim();
+    if token.is_empty() {
+        return Err(anyhow!("Empty token"));
+    }
+
+    let claims = decode_jwt_claims(token, jwt_secret)?;
+    let user_id = Uuid::parse_str(&claims.sub).map_err(|e| anyhow!("Invalid token subject: {e}"))?;
+
+    let db_user = sqlx::query_as::<_, DbUser>(
+        r#"
+        SELECT id, username, email, password_hash, ip_address, level, xp, reputation, disk_capacity_mb
+        FROM users
+        WHERE id = $1
+        "#,
+    )
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| anyhow!("User not found"))?;
+
+    Ok(to_public_user(db_user))
+}
+
+fn decode_jwt_claims(token: &str, secret: &str) -> anyhow::Result<Claims> {
+    let validation = Validation::new(Algorithm::HS256);
+    let token_data = jsonwebtoken::decode::<Claims>(token, &jwt_decoding_key(secret), &validation)
+        .map_err(|e| anyhow!("JWT verification failed: {e}"))?;
+    Ok(token_data.claims)
 }
 
 pub fn generate_jwt(user_id: Uuid, secret: &str) -> anyhow::Result<String> {
@@ -340,7 +388,6 @@ fn validate_register_input(username: &str, email: &str, password: &str) -> anyho
 }
 
 fn to_public_user(db_user: DbUser) -> User {
-    let _ = db_user.reputation;
     User {
         id: db_user.id.to_string(),
         username: db_user.username,
@@ -348,6 +395,8 @@ fn to_public_user(db_user: DbUser) -> User {
         ip_address: db_user.ip_address,
         level: db_user.level,
         xp: db_user.xp,
+        reputation: db_user.reputation,
+        disk_capacity_mb: db_user.disk_capacity_mb,
     }
 }
 

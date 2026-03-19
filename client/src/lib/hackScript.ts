@@ -6,7 +6,24 @@ type Token =
   | { type: "number"; value: number }
   | { type: "string"; value: string }
   | { type: "ident"; value: string }
-  | { type: "op"; value: "+" | "-" | "*" | "/" }
+  | {
+      type: "op";
+      value:
+        | "+"
+        | "-"
+        | "*"
+        | "/"
+        | "=="
+        | "!="
+        | "<"
+        | "<="
+        | ">"
+        | ">="
+        | "&&"
+        | "||"
+        | "!"
+        | "%";
+    }
   | { type: "lparen" }
   | { type: "rparen" };
 
@@ -34,8 +51,15 @@ function tokenizeExpr(expr: string): Token[] {
       i++;
       continue;
     }
-    if (c === "+" || c === "-" || c === "*" || c === "/") {
-      out.push({ type: "op", value: c });
+    // Multi-char operators first.
+    const two = s.slice(i, i + 2);
+    if (two === "==" || two === "!=" || two === "<=" || two === ">=" || two === "&&" || two === "||") {
+      out.push({ type: "op", value: two });
+      i += 2;
+      continue;
+    }
+    if (c === "+" || c === "-" || c === "*" || c === "/" || c === "%" || c === "<" || c === ">" || c === "!") {
+      out.push({ type: "op", value: c as any });
       i++;
       continue;
     }
@@ -86,56 +110,40 @@ function tokenizeExpr(expr: string): Token[] {
   return out;
 }
 
-function evalTokens(tokens: Token[], env: Record<string, string | number>): string | number {
-  // Shunting-yard for + - * /
-  const output: Token[] = [];
-  const ops: Array<Token & { type: "op" }> = [];
+type HackValue = string | number | boolean;
 
-  const prec: Record<string, number> = { "+": 1, "-": 1, "*": 2, "/": 2 };
-
-  for (const t of tokens) {
-    if (t.type === "number" || t.type === "string" || t.type === "ident") {
-      output.push(t);
-      continue;
-    }
-    if (t.type === "op") {
-      while (ops.length) {
-        const top = ops[ops.length - 1]!;
-        if (top.type === "op" && prec[top.value] >= prec[t.value]) output.push(ops.pop()!);
-        else break;
-      }
-      ops.push(t);
-      continue;
-    }
-    if (t.type === "lparen") {
-      ops.push({ type: "op", value: "+" }); // placeholder to keep stack shape
-      output.push(t);
-      continue;
-    }
-    if (t.type === "rparen") {
-      // Not used in this simplified approach; we handle parentheses by a separate parser below.
-      output.push(t);
-      continue;
-    }
-  }
-
-  // Better: use recursive evaluator by handling parentheses in string directly.
-  // To keep this compact, implement a simple eval by building a new expression parser:
-  return evalExprRecursive(tokens, env);
+function toBool(v: HackValue): boolean {
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") return v !== 0;
+  return v.length > 0;
 }
 
-function evalExprRecursive(tokens: Token[], env: Record<string, string | number>): string | number {
-  // Recursive descent: expr -> term (('+'|'-') term)*
-  // term -> factor (('*'|'/') factor)*
-  // factor -> number|string|ident|'(' expr ')'
+function toNum(v: HackValue): number {
+  if (typeof v === "number") return v;
+  if (typeof v === "boolean") return v ? 1 : 0;
+  const n = Number(v);
+  return n;
+}
+
+function evalExprRecursive(tokens: Token[], env: Record<string, string | number>): HackValue {
+  // Recursive descent with precedence:
+  // or  -> and ( '||' and )*
+  // and -> eq ( '&&' eq )*
+  // eq  -> rel ( ('=='|'!=') rel )*
+  // rel -> add ( ('<'|'<='|'>'|'>=') add )*
+  // add -> mul ( ('+'|'-') mul )*
+  // mul -> unary ( ('*'|'/'|'%') unary )*
+  // unary -> ('!'|'-') unary | primary
+  // primary -> number|string|ident|'(' or ')'
   let idx = 0;
 
   const peek = () => tokens[idx];
   const consume = () => tokens[idx++];
 
-  const parseFactor = (): string | number => {
+  const parsePrimary = (): HackValue => {
     const t = peek();
     if (!t) throw new Error("Unexpected end of expression");
+
     if (t.type === "number") {
       consume();
       return t.value;
@@ -151,53 +159,130 @@ function evalExprRecursive(tokens: Token[], env: Record<string, string | number>
     }
     if (t.type === "lparen") {
       consume();
-      const v = parseExpr();
+      const v = parseOr();
       const closing = consume();
       if (!closing || closing.type !== "rparen") throw new Error("Missing ')'");
       return v;
     }
-    throw new Error("Unexpected token in factor");
+    throw new Error("Unexpected token in primary");
   };
 
-  const parseTerm = (): string | number => {
-    let left = parseFactor();
+  const parseUnary = (): HackValue => {
+    const t = peek();
+    if (t && t.type === "op" && (t.value === "!" || t.value === "-")) {
+      consume();
+      const v = parseUnary();
+      if (t.value === "!") return !toBool(v);
+      const n = toNum(v);
+      if (!Number.isFinite(n)) throw new Error("Unary '-' used with non-number");
+      return -n;
+    }
+    return parsePrimary();
+  };
+
+  const parseMul = (): HackValue => {
+    let left = parseUnary();
     while (true) {
       const t = peek();
-      if (!t || t.type !== "op" || (t.value !== "*" && t.value !== "/")) break;
+      if (!t || t.type !== "op" || (t.value !== "*" && t.value !== "/" && t.value !== "%")) break;
       consume();
-      const right = parseFactor();
-      const lnum = typeof left === "number" ? left : Number(left);
-      const rnum = typeof right === "number" ? right : Number(right);
-      if (Number.isNaN(lnum) || Number.isNaN(rnum)) throw new Error("Numeric operator used with non-number");
-      left = t.value === "*" ? lnum * rnum : lnum / rnum;
+      const right = parseUnary();
+      const lnum = toNum(left);
+      const rnum = toNum(right);
+      if (!Number.isFinite(lnum) || !Number.isFinite(rnum)) throw new Error("Numeric operator used with non-number");
+      if (t.value === "*") left = lnum * rnum;
+      else if (t.value === "/") left = lnum / rnum;
+      else left = lnum % rnum;
     }
     return left;
   };
 
-  const parseExpr = (): string | number => {
-    let left = parseTerm();
+  const parseAdd = (): HackValue => {
+    let left = parseMul();
     while (true) {
       const t = peek();
       if (!t || t.type !== "op" || (t.value !== "+" && t.value !== "-")) break;
       consume();
-      const right = parseTerm();
+      const right = parseMul();
       if (t.value === "+") {
-        if (typeof left === "string" || typeof right === "string") {
-          left = String(left) + String(right);
-        } else {
-          left = (left as number) + (right as number);
-        }
+        if (typeof left === "string" || typeof right === "string") left = String(left) + String(right);
+        else left = toNum(left) + toNum(right);
       } else {
-        const lnum = typeof left === "number" ? left : Number(left);
-        const rnum = typeof right === "number" ? right : Number(right);
-        if (Number.isNaN(lnum) || Number.isNaN(rnum)) throw new Error("Numeric operator used with non-number");
+        const lnum = toNum(left);
+        const rnum = toNum(right);
+        if (!Number.isFinite(lnum) || !Number.isFinite(rnum)) throw new Error("Numeric operator used with non-number");
         left = lnum - rnum;
       }
     }
     return left;
   };
 
-  const result = parseExpr();
+  const parseRel = (): HackValue => {
+    let left = parseAdd();
+    while (true) {
+      const t = peek();
+      if (
+        !t ||
+        t.type !== "op" ||
+        (t.value !== "<" && t.value !== "<=" && t.value !== ">" && t.value !== ">=")
+      )
+        break;
+      consume();
+      const right = parseAdd();
+      const lnum = toNum(left);
+      const rnum = toNum(right);
+      if (!Number.isFinite(lnum) || !Number.isFinite(rnum)) throw new Error("Relational operator used with non-number");
+      if (t.value === "<") left = lnum < rnum;
+      else if (t.value === "<=") left = lnum <= rnum;
+      else if (t.value === ">") left = lnum > rnum;
+      else left = lnum >= rnum;
+    }
+    return left;
+  };
+
+  const parseEq = (): HackValue => {
+    let left = parseRel();
+    while (true) {
+      const t = peek();
+      if (!t || t.type !== "op" || (t.value !== "==" && t.value !== "!=")) break;
+      consume();
+      const right = parseRel();
+      if (typeof left === "number" && typeof right === "number") {
+        left = t.value === "==" ? left === right : left !== right;
+      } else {
+        const ls = String(left);
+        const rs = String(right);
+        left = t.value === "==" ? ls === rs : ls !== rs;
+      }
+    }
+    return left;
+  };
+
+  const parseAnd = (): HackValue => {
+    let left = parseEq();
+    while (true) {
+      const t = peek();
+      if (!t || t.type !== "op" || t.value !== "&&") break;
+      consume();
+      const right = parseEq();
+      left = toBool(left) && toBool(right);
+    }
+    return left;
+  };
+
+  const parseOr = (): HackValue => {
+    let left = parseAnd();
+    while (true) {
+      const t = peek();
+      if (!t || t.type !== "op" || t.value !== "||") break;
+      consume();
+      const right = parseAnd();
+      left = toBool(left) || toBool(right);
+    }
+    return left;
+  };
+
+  const result = parseOr();
   if (idx !== tokens.length) throw new Error("Unexpected tokens at end of expression");
   return result;
 }
@@ -212,7 +297,8 @@ function countIndent(line: string): number {
 type Stmt =
   | { type: "print"; expr: string }
   | { type: "assign"; name: string; expr: string }
-  | { type: "for"; varName: string; rangeExpr: string; body: Stmt[] };
+  | { type: "for"; varName: string; rangeExpr: string; body: Stmt[] }
+  | { type: "if"; condExpr: string; thenStmts: Stmt[]; elseStmts?: Stmt[] };
 
 function parseProgram(source: string): Stmt[] {
   const lines = source
@@ -249,6 +335,31 @@ function parseProgram(source: string): Stmt[] {
         const bodyIndent = indentLevel + 2;
         const body = parseBlock(bodyIndent);
         block.push({ type: "for", varName, rangeExpr, body });
+        continue;
+      }
+
+      if (trimmed.startsWith("if ")) {
+        // if <expr>:
+        const m = trimmed.match(/^if\s+(.+):$/);
+        if (!m) throw new Error("Invalid if syntax. Expected: if <cond>:");
+        const condExpr = m[1]!;
+        i++;
+
+        const bodyIndent = indentLevel + 2;
+        const thenStmts = parseBlock(bodyIndent);
+
+        let elseStmts: Stmt[] | undefined = undefined;
+        if (i < lines.length) {
+          const rawElse = lines[i]!;
+          const trimmedElse = rawElse.trim();
+          const indElse = countIndent(rawElse);
+          if (indElse === indentLevel && /^else\s*:$/.test(trimmedElse)) {
+            i++;
+            elseStmts = parseBlock(bodyIndent);
+          }
+        }
+
+        block.push({ type: "if", condExpr, thenStmts, elseStmts });
         continue;
       }
 
@@ -291,7 +402,7 @@ function parseProgram(source: string): Stmt[] {
   return stmts;
 }
 
-function evalExpr(expr: string, env: Record<string, string | number>): string | number {
+function evalExpr(expr: string, env: Record<string, string | number>): HackValue {
   const tokens = tokenizeExpr(expr);
   return evalExprRecursive(tokens, env);
 }
@@ -299,24 +410,45 @@ function evalExpr(expr: string, env: Record<string, string | number>): string | 
 export function runHackScript(source: string): HackRunResult {
   const output: string[] = [];
   const env: Record<string, string | number> = {};
+  const MAX_FOR_ITERATIONS = 10_000;
+  const MAX_OUTPUT_LINES = 500;
+  const MAX_EXEC_STMTS = 50_000;
+  let execStmtsCount = 0;
 
   const ast = parseProgram(source);
 
   const execStmts = (stmts: Stmt[]) => {
     for (const s of stmts) {
+      execStmtsCount += 1;
+      if (execStmtsCount > MAX_EXEC_STMTS) {
+        throw new Error("HackScript execution limit exceeded");
+      }
       if (s.type === "assign") {
-        env[s.name] = evalExpr(s.expr, env);
+        const v = evalExpr(s.expr, env);
+        // HackScript assignments store primitive values in the environment.
+        // Boolean results are represented as 1/0 to keep env typed.
+        env[s.name] = typeof v === "boolean" ? (v ? 1 : 0) : v;
       } else if (s.type === "print") {
         const v = evalExpr(s.expr, env);
+        if (output.length >= MAX_OUTPUT_LINES) {
+          throw new Error("HackScript output limit exceeded");
+        }
         output.push(String(v));
       } else if (s.type === "for") {
         const nRaw = evalExpr(s.rangeExpr, env);
         const n = typeof nRaw === "number" ? nRaw : Number(nRaw);
         if (!Number.isFinite(n)) throw new Error("range() must evaluate to a number");
+        if (n < 0) throw new Error("range() must be non-negative");
+        if (n > MAX_FOR_ITERATIONS) throw new Error(`range() too large (max ${MAX_FOR_ITERATIONS})`);
         for (let k = 0; k < n; k++) {
           env[s.varName] = k;
           execStmts(s.body);
         }
+      } else if (s.type === "if") {
+        const condRaw = evalExpr(s.condExpr, env);
+        const cond = toBool(condRaw as HackValue);
+        if (cond) execStmts(s.thenStmts);
+        else if (s.elseStmts) execStmts(s.elseStmts);
       }
     }
   };

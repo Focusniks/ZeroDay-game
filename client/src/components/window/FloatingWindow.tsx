@@ -9,10 +9,22 @@ type Props = {
   onMinimize: () => void;
   minimized?: boolean;
   children: ReactNode;
+  /** Bring this window to front when user interacts with it. */
+  onFocus?: () => void;
+  zIndex?: number;
 };
 
-export function FloatingWindow({ title, onClose, onMinimize, minimized = false, children }: Props) {
+export function FloatingWindow({
+  title,
+  onClose,
+  onMinimize,
+  minimized = false,
+  children,
+  onFocus,
+  zIndex
+}: Props) {
   const [termRect, setTermRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const termRectRef = useRef(termRect);
   const [maximized, setMaximized] = useState(false);
   const maximizedRef = useRef(maximized);
   const prevRectRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
@@ -37,6 +49,10 @@ export function FloatingWindow({ title, onClose, onMinimize, minimized = false, 
   }, [maximized]);
 
   useEffect(() => {
+    termRectRef.current = termRect;
+  }, [termRect]);
+
+  useEffect(() => {
     const compute = () => {
       const vw = window.innerWidth;
       const vh = window.innerHeight;
@@ -44,8 +60,8 @@ export function FloatingWindow({ title, onClose, onMinimize, minimized = false, 
       const pad = 10;
 
       const getDefaultRect = () => {
-        const w = Math.min(560, Math.floor(vw * 0.66));
-        const h = Math.min(520, Math.floor((vh - taskbarH) * 0.7));
+        const w = Math.min(900, Math.floor(vw * 0.78));
+        const h = Math.min(700, Math.floor((vh - taskbarH) * 0.76));
         const x = Math.max(10, Math.floor((vw - w) / 2));
         const y = Math.max(10, Math.floor((vh - taskbarH - h) / 2));
         return { x, y, w, h };
@@ -122,17 +138,17 @@ export function FloatingWindow({ title, onClose, onMinimize, minimized = false, 
 
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
-      if (!dragRef.current || !termRect) return;
+      const r = dragRef.current;
+      const cur = termRectRef.current;
+      if (!r || !cur) return;
       if (maximizedRef.current) return;
-      const dx = e.clientX - dragRef.current.startX;
-      const dy = e.clientY - dragRef.current.startY;
+      const dx = e.clientX - r.startX;
+      const dy = e.clientY - r.startY;
       const vw = window.innerWidth;
       const vh = window.innerHeight;
-      const w = termRect.w;
-      const h = termRect.h;
-      const nextX = Math.min(Math.max(0, dragRef.current.originX + dx), vw - w);
-      const nextY = Math.min(Math.max(0, dragRef.current.originY + dy), vh - h);
-      setTermRect({ ...termRect, x: nextX, y: nextY });
+      const nextX = Math.min(Math.max(0, r.originX + dx), vw - cur.w);
+      const nextY = Math.min(Math.max(0, r.originY + dy), vh - cur.h);
+      setTermRect((prev) => (prev ? { ...prev, x: nextX, y: nextY } : prev));
     };
 
     const onUp = () => {
@@ -145,7 +161,7 @@ export function FloatingWindow({ title, onClose, onMinimize, minimized = false, 
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
-  }, [termRect]);
+  }, []);
 
   const toggleMaximize = () => {
     if (!termRect) return;
@@ -172,15 +188,19 @@ export function FloatingWindow({ title, onClose, onMinimize, minimized = false, 
       className={`terminal-window fixed z-[75] relative flex flex-col overflow-hidden rounded-xl border border-white/10 bg-[#0d1117] shadow-2xl transition-all duration-180 ease-out ${
         minimized ? "pointer-events-none opacity-0 scale-95" : ""
       }`}
+      onMouseDown={() => onFocus?.()}
       style={
         termRect
           ? {
               left: termRect.x,
               top: termRect.y,
               width: termRect.w,
-              height: termRect.h
+              height: termRect.h,
+              ...(zIndex !== undefined ? { zIndex } : {})
             }
-          : undefined
+          : zIndex !== undefined
+            ? { zIndex }
+            : undefined
       }
     >
       <div
@@ -231,6 +251,7 @@ export function FloatingWindow({ title, onClose, onMinimize, minimized = false, 
           <div
             className="resize-handle resize-handle--n"
             onPointerDown={(e) => {
+              onFocus?.();
               if (!termRect) return;
               e.stopPropagation();
               e.preventDefault();
@@ -247,6 +268,7 @@ export function FloatingWindow({ title, onClose, onMinimize, minimized = false, 
           <div
             className="resize-handle resize-handle--s"
             onPointerDown={(e) => {
+              onFocus?.();
               if (!termRect) return;
               e.stopPropagation();
               e.preventDefault();
@@ -263,6 +285,7 @@ export function FloatingWindow({ title, onClose, onMinimize, minimized = false, 
           <div
             className="resize-handle resize-handle--e"
             onPointerDown={(e) => {
+              onFocus?.();
               if (!termRect) return;
               e.stopPropagation();
               e.preventDefault();
@@ -279,6 +302,7 @@ export function FloatingWindow({ title, onClose, onMinimize, minimized = false, 
           <div
             className="resize-handle resize-handle--w"
             onPointerDown={(e) => {
+              onFocus?.();
               if (!termRect) return;
               e.stopPropagation();
               e.preventDefault();
@@ -296,6 +320,7 @@ export function FloatingWindow({ title, onClose, onMinimize, minimized = false, 
           <div
             className="resize-handle resize-handle--nw"
             onPointerDown={(e) => {
+              onFocus?.();
               if (!termRect) return;
               e.stopPropagation();
               e.preventDefault();
@@ -312,6 +337,7 @@ export function FloatingWindow({ title, onClose, onMinimize, minimized = false, 
           <div
             className="resize-handle resize-handle--ne"
             onPointerDown={(e) => {
+              onFocus?.();
               if (!termRect) return;
               e.stopPropagation();
               e.preventDefault();
@@ -328,6 +354,7 @@ export function FloatingWindow({ title, onClose, onMinimize, minimized = false, 
           <div
             className="resize-handle resize-handle--sw"
             onPointerDown={(e) => {
+              onFocus?.();
               if (!termRect) return;
               e.stopPropagation();
               e.preventDefault();
@@ -344,6 +371,7 @@ export function FloatingWindow({ title, onClose, onMinimize, minimized = false, 
           <div
             className="resize-handle resize-handle--se"
             onPointerDown={(e) => {
+              onFocus?.();
               if (!termRect) return;
               e.stopPropagation();
               e.preventDefault();

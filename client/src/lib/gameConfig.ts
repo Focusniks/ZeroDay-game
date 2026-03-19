@@ -11,6 +11,8 @@ export type GameConfigFile = {
   gameLanguage?: GameLanguage;
   /** IANA, например Europe/Moscow */
   timezone?: string;
+  /** Desktop wallpaper id (CSS gradients, no external assets). */
+  wallpaper?: string;
 };
 
 const LS_KEY = "zeroday.game.config.v1";
@@ -25,7 +27,8 @@ export const DEFAULT_GAME_CONFIG: GameConfigFile = {
   wsUrl: undefined,
   lastLoginEmailHint: undefined,
   gameLanguage: undefined,
-  timezone: undefined
+  timezone: undefined,
+  wallpaper: undefined
 };
 
 export function normalizeGameLanguage(value: string | undefined | null): GameLanguage {

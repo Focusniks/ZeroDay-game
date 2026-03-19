@@ -10,6 +10,12 @@ export type FsEntry = {
   size: number;
 };
 
+export type FsDiskUsage = {
+  capacityBytes: number;
+  usedBytes: number;
+  freeBytes: number;
+};
+
 export async function initGameFs(): Promise<void> {
   try {
     await invoke("fs_init");
@@ -36,6 +42,15 @@ export async function listFs(relPath: string): Promise<FsEntry[]> {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     throw new Error(`fs_list failed: ${msg}`);
+  }
+}
+
+export async function getFsDiskUsage(): Promise<FsDiskUsage> {
+  try {
+    return await invoke<FsDiskUsage>("fs_disk_usage");
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`fs_disk_usage failed: ${msg}`);
   }
 }
 

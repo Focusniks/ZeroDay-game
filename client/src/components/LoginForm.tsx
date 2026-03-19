@@ -11,7 +11,7 @@ export function LoginForm() {
   const navigate = useNavigate();
   const { login, wsState } = useAuth();
   const { config, patchConfig } = useGameConfig();
-  const { t } = useI18n();
+  const { lang, t } = useI18n();
 
   const connHint =
     wsState === "connecting"
@@ -28,6 +28,17 @@ export function LoginForm() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [editIdentifier, setEditIdentifier] = useState(false);
+
+  const exitApp = () => {
+    void (async () => {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        await getCurrentWindow().destroy();
+      } catch {
+        window.close();
+      }
+    })();
+  };
 
   useEffect(() => {
     if (hint) {
@@ -68,7 +79,16 @@ export function LoginForm() {
   };
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-[#0b1220]/70 p-6 shadow-2xl shadow-black/40 backdrop-blur-md">
+    <div className="rounded-2xl border border-white/10 bg-[#0b1220]/70 p-6 shadow-2xl shadow-black/40 backdrop-blur-md relative">
+      <div className="absolute right-3 top-3">
+        <button
+          type="button"
+          onClick={exitApp}
+          className="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-200 hover:bg-white/10"
+        >
+          {lang === "ru" ? "Выход" : "Exit"}
+        </button>
+      </div>
       <div className="mb-6 flex items-center gap-4">
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-xl shadow-inner">
           {(identifier || "U")[0]?.toUpperCase()}

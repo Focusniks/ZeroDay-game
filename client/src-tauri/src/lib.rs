@@ -9,6 +9,7 @@ pub fn run() {
             game_config::save_game_config,
             fs_game::fs_init,
             fs_game::fs_root_path,
+            fs_game::fs_disk_usage,
             fs_game::fs_list,
             fs_game::fs_mkdir,
             fs_game::fs_delete,

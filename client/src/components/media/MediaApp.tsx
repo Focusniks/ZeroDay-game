@@ -14,6 +14,8 @@ type Props = {
   initialRelPath?: string; // file inside Photos/ or Videos/
   onMinimize: () => void;
   onClose: () => void;
+  onFocus?: () => void;
+  zIndex?: number;
 };
 
 function mimeFromRelPath(relPath: string): string {
@@ -580,7 +582,15 @@ function PhotoViewer({
   );
 }
 
-export function MediaApp({ lang, minimized = false, initialRelPath, onMinimize, onClose }: Props) {
+export function MediaApp({
+  lang,
+  minimized = false,
+  initialRelPath,
+  onMinimize,
+  onClose,
+  onFocus,
+  zIndex
+}: Props) {
   const [activeRelPath, setActiveRelPath] = useState<string | null>(initialRelPath ?? null);
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -643,7 +653,14 @@ export function MediaApp({ lang, minimized = false, initialRelPath, onMinimize, 
   const isVideo = activeRelPath ? isVideoRelPath(activeRelPath) : false;
 
   return (
-    <FloatingWindow title={title} onClose={onClose} onMinimize={onMinimize} minimized={minimized}>
+    <FloatingWindow
+      title={title}
+      onClose={onClose}
+      onMinimize={onMinimize}
+      minimized={minimized}
+      onFocus={onFocus}
+      zIndex={zIndex}
+    >
       <div
         className="flex h-full flex-col gap-3 p-4"
         onContextMenu={(e) => {

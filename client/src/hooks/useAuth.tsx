@@ -53,9 +53,18 @@ export function AuthProvider({
   const [systemLoading, setSystemLoading] = useState(false);
 
   const pendingRequestRef = useRef<PendingAuthRequest | null>(null);
+  const pendingTimeoutRef = useRef<number | null>(null);
+  const didAuthorizeRef = useRef(false);
   // При регистрации во время мастера установки мы не хотим показывать console-оверлей,
   // чтобы пользователь успевал прочитать факты и пройти установку.
   const suppressNextSystemLoadingRef = useRef(false);
+
+  const clearPendingTimeout = () => {
+    if (pendingTimeoutRef.current !== null) {
+      window.clearTimeout(pendingTimeoutRef.current);
+      pendingTimeoutRef.current = null;
+    }
+  };
 
   useEffect(() => {
     const storedToken = localStorage.getItem(STORAGE_TOKEN_KEY);
@@ -75,6 +84,28 @@ export function AuthProvider({
   }, []);
 
   useEffect(() => {
+    if (readyState !== "open") {
+      didAuthorizeRef.current = false;
+    }
+  }, [readyState]);
+
+  // Auto-resume session: if we have a token from localStorage, ask backend to verify it.
+  useEffect(() => {
+    if (readyState !== "open") return;
+    if (!token) return;
+    if (didAuthorizeRef.current) return;
+
+    didAuthorizeRef.current = true;
+    suppressNextSystemLoadingRef.current = true; // do not show boot overlay on resume
+
+    try {
+      sendJson({ type: "Authorize", token } satisfies WsMessage);
+    } catch {
+      didAuthorizeRef.current = false;
+    }
+  }, [readyState, sendJson, token]);
+
+  useEffect(() => {
     if (!lastMessage) return;
 
     let message: WsMessage | null = null;
@@ -86,6 +117,7 @@ export function AuthProvider({
     if (!message) return;
 
     if (message.type === "AuthSuccess") {
+      clearPendingTimeout();
       setToken(message.token);
       setUser(message.user);
       localStorage.setItem(STORAGE_TOKEN_KEY, message.token);
@@ -103,12 +135,20 @@ export function AuthProvider({
     }
 
     if (message.type === "AuthError") {
-      pendingRequestRef.current?.reject(new Error(message.message));
-      pendingRequestRef.current = null;
+      clearPendingTimeout();
+      if (pendingRequestRef.current) {
+        pendingRequestRef.current.reject(new Error(message.message));
+        pendingRequestRef.current = null;
+        return;
+      }
+
+      // AuthError without an in-flight login/register request => token is invalid/expired.
+      logout();
       return;
     }
 
     if (message.type === "Error") {
+      clearPendingTimeout();
       pendingRequestRef.current?.reject(new Error(`${message.code}: ${message.message}`));
       pendingRequestRef.current = null;
     }
@@ -116,7 +156,15 @@ export function AuthProvider({
 
   const login = (email: string, password: string) =>
     new Promise<void>((resolve, reject) => {
+      clearPendingTimeout();
+      if (pendingRequestRef.current) {
+        pendingRequestRef.current.reject(new Error("Another auth request is already in progress"));
+      }
       pendingRequestRef.current = { resolve, reject };
+      pendingTimeoutRef.current = window.setTimeout(() => {
+        pendingRequestRef.current?.reject(new Error("WebSocket auth timed out"));
+        pendingRequestRef.current = null;
+      }, 10000);
       suppressNextSystemLoadingRef.current = false;
       try {
         sendJson({
@@ -126,13 +174,22 @@ export function AuthProvider({
         } satisfies WsMessage);
       } catch (error) {
         pendingRequestRef.current = null;
+        clearPendingTimeout();
         reject(error instanceof Error ? error : new Error("Failed to send login request"));
       }
     });
 
   const register = (username: string, email: string, password: string) =>
     new Promise<void>((resolve, reject) => {
+      clearPendingTimeout();
+      if (pendingRequestRef.current) {
+        pendingRequestRef.current.reject(new Error("Another auth request is already in progress"));
+      }
       pendingRequestRef.current = { resolve, reject };
+      pendingTimeoutRef.current = window.setTimeout(() => {
+        pendingRequestRef.current?.reject(new Error("WebSocket auth timed out"));
+        pendingRequestRef.current = null;
+      }, 10000);
       suppressNextSystemLoadingRef.current = true;
       try {
         sendJson({
@@ -143,11 +200,15 @@ export function AuthProvider({
         } satisfies WsMessage);
       } catch (error) {
         pendingRequestRef.current = null;
+        clearPendingTimeout();
         reject(error instanceof Error ? error : new Error("Failed to send register request"));
       }
     });
 
   const logout = () => {
+    clearPendingTimeout();
+    pendingRequestRef.current = null;
+    didAuthorizeRef.current = false;
     setToken(null);
     setUser(null);
     localStorage.removeItem(STORAGE_TOKEN_KEY);

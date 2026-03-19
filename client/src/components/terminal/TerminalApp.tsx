@@ -15,6 +15,8 @@ type Props = {
   minimized?: boolean;
   injectKey?: number;
   injectLines?: string[];
+  onFocus?: () => void;
+  zIndex?: number;
 };
 
 function normalizeCommand(cmd: string): string {
@@ -30,7 +32,9 @@ export function TerminalApp({
   onClose,
   minimized = false,
   injectKey,
-  injectLines
+  injectLines,
+  onFocus,
+  zIndex
 }: Props) {
   const { t } = useI18n();
   const username = user?.username ?? "agent";
@@ -52,9 +56,12 @@ export function TerminalApp({
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const runCommandRef = useRef<(cmd: string) => void>(() => {});
+  // Used to "interrupt" long-running-ish commands (currently only hackrun uses async file read).
+  const execTokenRef = useRef(0);
 
   // Floating window geometry (fixed position, draggable by title bar)
   const [termRect, setTermRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const termRectRef = useRef(termRect);
   const [maximized, setMaximized] = useState(false);
   const maximizedRef = useRef(maximized);
   const prevRectRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
@@ -70,6 +77,10 @@ export function TerminalApp({
     maximizedRef.current = maximized;
   }, [maximized]);
 
+  useEffect(() => {
+    termRectRef.current = termRect;
+  }, [termRect]);
+
   const dragRef = useRef<{
     startX: number;
     startY: number;
@@ -84,8 +95,8 @@ export function TerminalApp({
       const taskbarH = 48;
 
       const getDefaultRect = () => {
-        const w = Math.min(860, Math.floor(vw * 0.72));
-        const h = Math.min(520, Math.floor((vh - taskbarH) * 0.58));
+        const w = Math.min(1080, Math.floor(vw * 0.82));
+        const h = Math.min(700, Math.floor((vh - taskbarH) * 0.72));
         const x = Math.max(10, Math.floor((vw - w) / 2));
         const y = Math.max(10, Math.floor((vh - taskbarH - h) / 2));
         return { x, y, w, h };
@@ -176,16 +187,17 @@ export function TerminalApp({
 
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
-      if (!dragRef.current || !termRect) return;
+      const cur = termRectRef.current;
+      if (!dragRef.current || !cur) return;
       const dx = e.clientX - dragRef.current.startX;
       const dy = e.clientY - dragRef.current.startY;
       const vw = window.innerWidth;
       const vh = window.innerHeight;
-      const w = termRect.w;
-      const h = termRect.h;
+      const w = cur.w;
+      const h = cur.h;
       const nextX = Math.min(Math.max(0, dragRef.current.originX + dx), vw - w);
       const nextY = Math.min(Math.max(0, dragRef.current.originY + dy), vh - h);
-      setTermRect({ ...termRect, x: nextX, y: nextY });
+      setTermRect((prev) => (prev ? { ...prev, x: nextX, y: nextY } : prev));
     };
     const onUp = () => {
       dragRef.current = null;
@@ -196,7 +208,7 @@ export function TerminalApp({
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
-  }, [termRect]);
+  }, []);
 
   useEffect(() => {
     setLines(initialLines);
@@ -384,19 +396,23 @@ export function TerminalApp({
         ? withHackExt
         : `Scripts/${withHackExt.replace(/^\.\//, "")}`;
 
+      const runToken = ++execTokenRef.current;
       void (async () => {
         try {
           const source = await readTextFs(scriptRelPath);
+          if (execTokenRef.current !== runToken) return;
           const res = runHackScript(source);
+          if (execTokenRef.current !== runToken) return;
           setLines((prev) => [...prev, ...res.output]);
         } catch (e) {
+          if (execTokenRef.current !== runToken) return;
           const msg = e instanceof Error ? e.message : String(e);
           setLines((prev) => [
             ...prev,
             isRu ? `HackScript ошибка: ${msg}` : `HackScript error: ${msg}`
           ]);
         } finally {
-          setCmd("");
+          if (execTokenRef.current === runToken) setCmd("");
         }
       })();
 
@@ -485,8 +501,8 @@ export function TerminalApp({
     const vh = window.innerHeight;
 
     const getDefaultRect = () => {
-      const w = Math.min(860, Math.floor(vw * 0.72));
-      const h = Math.min(520, Math.floor((vh - taskbarH) * 0.58));
+      const w = Math.min(1080, Math.floor(vw * 0.82));
+      const h = Math.min(700, Math.floor((vh - taskbarH) * 0.72));
       const x = Math.max(10, Math.floor((vw - w) / 2));
       const y = Math.max(10, Math.floor((vh - taskbarH - h) / 2));
       return { x, y, w, h };
@@ -515,15 +531,19 @@ export function TerminalApp({
       className={`terminal-window fixed z-[70] relative flex flex-col overflow-hidden rounded-xl border border-white/10 bg-[#0d1117] shadow-2xl transition-all duration-180 ease-out ${
         minimized ? "pointer-events-none opacity-0 scale-95" : ""
       }`}
+      onMouseDown={() => onFocus?.()}
       style={
         termRect
           ? {
               left: termRect.x,
               top: termRect.y,
               width: termRect.w,
-              height: termRect.h
+              height: termRect.h,
+              ...(zIndex !== undefined ? { zIndex } : {})
             }
-          : undefined
+          : zIndex !== undefined
+            ? { zIndex }
+            : undefined
       }
     >
       <div
@@ -573,6 +593,7 @@ export function TerminalApp({
       {!maximized && (
         <>
           <div className="resize-handle resize-handle--n" onPointerDown={(e) => {
+            onFocus?.();
             if (!termRect) return;
             e.stopPropagation();
             e.preventDefault();
@@ -580,6 +601,7 @@ export function TerminalApp({
             (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
           }} />
           <div className="resize-handle resize-handle--s" onPointerDown={(e) => {
+            onFocus?.();
             if (!termRect) return;
             e.stopPropagation();
             e.preventDefault();
@@ -587,6 +609,7 @@ export function TerminalApp({
             (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
           }} />
           <div className="resize-handle resize-handle--e" onPointerDown={(e) => {
+            onFocus?.();
             if (!termRect) return;
             e.stopPropagation();
             e.preventDefault();
@@ -594,6 +617,7 @@ export function TerminalApp({
             (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
           }} />
           <div className="resize-handle resize-handle--w" onPointerDown={(e) => {
+            onFocus?.();
             if (!termRect) return;
             e.stopPropagation();
             e.preventDefault();
@@ -602,6 +626,7 @@ export function TerminalApp({
           }} />
 
           <div className="resize-handle resize-handle--nw" onPointerDown={(e) => {
+            onFocus?.();
             if (!termRect) return;
             e.stopPropagation();
             e.preventDefault();
@@ -609,6 +634,7 @@ export function TerminalApp({
             (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
           }} />
           <div className="resize-handle resize-handle--ne" onPointerDown={(e) => {
+            onFocus?.();
             if (!termRect) return;
             e.stopPropagation();
             e.preventDefault();
@@ -616,6 +642,7 @@ export function TerminalApp({
             (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
           }} />
           <div className="resize-handle resize-handle--sw" onPointerDown={(e) => {
+            onFocus?.();
             if (!termRect) return;
             e.stopPropagation();
             e.preventDefault();
@@ -623,6 +650,7 @@ export function TerminalApp({
             (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
           }} />
           <div className="resize-handle resize-handle--se" onPointerDown={(e) => {
+            onFocus?.();
             if (!termRect) return;
             e.stopPropagation();
             e.preventDefault();
@@ -648,6 +676,26 @@ export function TerminalApp({
             value={cmd}
             onChange={(e) => setCmd(e.target.value)}
             onKeyDown={(e) => {
+              const key = e.key.toLowerCase();
+              if (e.ctrlKey && key === "l") {
+                e.preventDefault();
+                setLines(initialLines);
+                setCmd("");
+                return;
+              }
+              if (e.ctrlKey && key === "c") {
+                e.preventDefault();
+                execTokenRef.current += 1; // invalidate pending hackrun output
+                setCmd("");
+                const msg = lang === "ru" ? "Интеррупт (Ctrl+C)" : "Interrupted (Ctrl+C)";
+                setLines((prev) => [...prev, msg]);
+                return;
+              }
+              if (e.ctrlKey && key === "u") {
+                e.preventDefault();
+                setCmd("");
+                return;
+              }
               if (e.key === "Enter") {
                 e.preventDefault();
                 runCommand(cmd);

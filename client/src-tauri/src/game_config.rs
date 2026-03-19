@@ -17,6 +17,9 @@ pub struct GameConfig {
     /// IANA часовой пояс, например "Europe/Moscow".
     #[serde(default)]
     pub timezone: Option<String>,
+    /// Desktop wallpaper id (CSS gradients, no external assets).
+    #[serde(default)]
+    pub wallpaper: Option<String>,
 }
 
 impl Default for GameConfig {
@@ -28,6 +31,7 @@ impl Default for GameConfig {
             last_login_email_hint: None,
             game_language: None,
             timezone: None,
+            wallpaper: None,
         }
     }
 }
