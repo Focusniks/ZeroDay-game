@@ -62,7 +62,7 @@ export function LoadingScreen({
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex flex-col bg-black text-white"
+      className="fixed inset-0 z-[5000] flex flex-col bg-black text-white"
       style={{
         opacity: fadeOut ? 0 : 1,
         transition: `opacity ${fadeMs}ms ease-in-out`,

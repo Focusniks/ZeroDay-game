@@ -6,14 +6,33 @@ html,
 body,
 #root {
   height: 100%;
+  width: 100%;
+  overflow: hidden;
 }
 
 body {
   margin: 0;
   background: #05080f;
   color: #e6e8ef;
+  cursor: url("/cursors/moga/Normal Select.cur"), default;
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial,
     "Apple Color Emoji", "Segoe UI Emoji";
+}
+
+:root {
+  --cursor-default: url("/cursors/moga/Normal Select.cur"), default;
+  --cursor-pointer: url("/cursors/moga/Link Select.cur"), pointer;
+  --cursor-text: url("/cursors/moga/Text Select.cur"), text;
+  --cursor-move: url("/cursors/moga/Move.cur"), move;
+  --cursor-help: url("/cursors/moga/Help Select.cur"), help;
+  --cursor-not-allowed: url("/cursors/moga/Unavailable.cur"), not-allowed;
+  --cursor-crosshair: url("/cursors/moga/Precision Select.cur"), crosshair;
+  --cursor-progress: url("/cursors/moga/Working In Background.ani"), progress;
+  --cursor-wait: url("/cursors/moga/Busy.ani"), wait;
+  --cursor-ew: url("/cursors/moga/Horizontal Resize.cur"), ew-resize;
+  --cursor-ns: url("/cursors/moga/Vertical Resize.cur"), ns-resize;
+  --cursor-nwse: url("/cursors/moga/Diagonal Resize 1.cur"), nwse-resize;
+  --cursor-nesw: url("/cursors/moga/Diagonal Resize 2.cur"), nesw-resize;
 }
 
 /* Hide browser UI (scrollbars) + disable text selection in game */
@@ -27,9 +46,57 @@ body {
 
 .game-ui {
   user-select: none;
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  cursor: var(--cursor-default);
+}
+
+.game-root {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+}
+
+.game-background-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background-size: cover;
+  background-repeat: no-repeat;
+  background-position: center center;
+  background-attachment: fixed;
+  will-change: auto;
+  pointer-events: none;
+}
+
+.window-stage {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  isolation: isolate;
 }
 .game-ui .terminal-input {
   user-select: text;
+  cursor: var(--cursor-text);
+}
+
+button,
+[role="button"],
+.is-clickable,
+a {
+  cursor: var(--cursor-pointer);
+}
+
+input,
+textarea,
+[contenteditable="true"] {
+  cursor: var(--cursor-text);
+}
+
+.cursor-grab {
+  cursor: var(--cursor-move);
 }
 
 .login-wallpaper {
@@ -116,68 +183,94 @@ body {
 
 .taskbar {
   position: fixed;
-  left: 12px;
-  right: 12px;
+  left: 10px;
+  right: 10px;
   bottom: 10px;
-  height: 54px;
+  height: 56px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 14px;
-  background: linear-gradient(180deg, rgba(11, 17, 32, 0.9) 0%, rgba(8, 14, 26, 0.9) 100%);
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  border-bottom-color: rgba(45, 212, 191, 0.25);
-  border-radius: 14px;
-  backdrop-filter: blur(14px);
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
-  z-index: 300;
+  padding: 0 9px;
+  background: linear-gradient(180deg, rgba(26, 31, 41, 0.97) 0%, rgba(19, 24, 33, 0.97) 100%);
+  border: 1px solid rgba(114, 128, 150, 0.35);
+  border-radius: 9px;
+  backdrop-filter: blur(8px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 20px 60px rgba(0, 0, 0, 0.62);
+  z-index: 280;
   pointer-events: auto;
 }
 
+.taskbar-shell::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.12);
+  pointer-events: none;
+}
+
+.taskbar-zone-left,
 .taskbar-left {
   display: flex;
   align-items: center;
-  gap: 10px;
-  min-width: 120px;
+  gap: 8px;
+  min-width: 170px;
 }
 
+.taskbar-zone-center,
 .taskbar-center {
   flex: 1;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   min-width: 0;
+  padding: 0 10px;
 }
 
 .taskbar-start {
-  width: 46px;
-  height: 46px;
-  padding: 0;
-  border-radius: 12px;
+  width: auto;
+  height: 38px;
+  padding: 0 11px;
+  border-radius: 7px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.28);
+  gap: 10px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
 }
 
+.linux-launcher-btn {
+  background: linear-gradient(180deg, rgba(68, 112, 180, 0.9), rgba(49, 84, 145, 0.9));
+  border-color: rgba(109, 163, 246, 0.6);
+}
+
+.linux-launcher-label {
+  font-size: 12px;
+  letter-spacing: 0.01em;
+  opacity: 0.95;
+}
+
+.taskbar-app-grid,
 .taskbar-apps {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   max-width: 100%;
   overflow-x: auto;
-  padding: 2px;
+  padding: 2px 0;
 }
 
 .taskbar-app {
-  width: 36px;
   height: 36px;
+  min-width: 36px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 12px;
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  border: 1px solid rgba(112, 126, 149, 0.36);
+  background: linear-gradient(180deg, rgba(80, 87, 101, 0.82), rgba(53, 59, 72, 0.82));
   color: rgba(226, 232, 240, 1);
   transition: background-color 120ms ease, border-color 120ms ease;
 }
@@ -188,29 +281,69 @@ body {
 }
 
 .taskbar-app--active {
-  background: rgba(45, 212, 191, 0.12);
-  border-color: rgba(45, 212, 191, 0.45);
+  background: linear-gradient(180deg, rgba(109, 123, 145, 0.95), rgba(71, 81, 98, 0.95));
+  border-color: rgba(134, 198, 255, 0.82);
 }
 
+.taskbar-app-chip {
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 0 9px;
+  max-width: 220px;
+}
+
+.taskbar-app-chip-icon {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+}
+
+.taskbar-theme-icon {
+  display: block;
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  user-select: none;
+  pointer-events: none;
+}
+
+.taskbar-app-chip-label {
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.taskbar-zone-right,
 .taskbar-right {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
+.taskbar-status-icons,
 .taskbar-right-icons {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
+.taskbar-status-btn {
+  width: 40px;
+  min-width: 40px;
+  padding: 0;
+}
+
 .taskbar-clock {
   height: 36px;
-  min-width: 70px;
-  padding: 0 10px;
-  border-radius: 12px;
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  background: rgba(255, 255, 255, 0.05);
+  min-width: 104px;
+  padding: 0 9px;
+  border-radius: 6px;
+  border: 1px solid rgba(112, 126, 149, 0.36);
+  background: linear-gradient(180deg, rgba(79, 87, 101, 0.82), rgba(53, 59, 72, 0.82));
   color: rgba(226, 232, 240, 1);
   display: inline-flex;
   align-items: center;
@@ -258,9 +391,9 @@ body {
 
 .taskbar-net-menu {
   position: fixed;
-  right: 12px;
-  bottom: 48px;
-  width: 300px;
+  right: 10px;
+  bottom: 70px;
+  width: 320px;
   background: rgba(20, 26, 38, 0.96);
   border: 1px solid rgba(148, 163, 184, 0.18);
   border-radius: 12px;
@@ -346,7 +479,7 @@ body {
   position: fixed;
   z-index: 1100;
   left: 16px;
-  bottom: 48px; /* above taskbar */
+  bottom: 70px; /* above taskbar */
   width: 560px;
   height: 520px;
   background: #3f444c;
@@ -713,13 +846,13 @@ body {
 .clock-popover {
   position: fixed;
   z-index: 1300;
-  width: 320px;
+  width: 332px;
   padding: 12px 12px 14px 12px;
   border-radius: 14px;
   background: rgba(17, 24, 39, 0.92);
   border: 1px solid rgba(148, 163, 184, 0.2);
   box-shadow: 0 30px 80px rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(12px);
+  backdrop-filter: blur(10px);
 }
 
 .clock-popover-header {
@@ -756,8 +889,10 @@ body {
 
 .clock-popover-time {
   display: flex;
-  justify-content: center;
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: 10px;
+  gap: 8px;
 }
 
 .clock-time {
@@ -804,6 +939,32 @@ body {
 .clock-day--today {
   border-color: rgba(45, 212, 191, 0.8);
   background: rgba(45, 212, 191, 0.15);
+}
+
+.clock-day--selected {
+  border-color: rgba(59, 130, 246, 0.8);
+  background: rgba(59, 130, 246, 0.15);
+}
+
+.clock-day--ghost {
+  border-color: transparent;
+  background: transparent;
+  pointer-events: none;
+}
+
+.clock-today-btn {
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(226, 232, 240, 1);
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 8px;
+}
+
+.clock-today-btn:hover {
+  border-color: rgba(45, 212, 191, 0.45);
+  background: rgba(45, 212, 191, 0.1);
 }
 
 .desktop-folder-ico {
@@ -947,6 +1108,7 @@ body {
   position: absolute;
   z-index: 80;
   background: transparent;
+  touch-action: none;
 }
 
 .resize-handle--n,
@@ -957,11 +1119,11 @@ body {
 }
 .resize-handle--n {
   top: 0;
-  cursor: ns-resize;
+  cursor: var(--cursor-ns);
 }
 .resize-handle--s {
   bottom: 0;
-  cursor: ns-resize;
+  cursor: var(--cursor-ns);
 }
 
 .resize-handle--e,
@@ -972,11 +1134,11 @@ body {
 }
 .resize-handle--e {
   right: 0;
-  cursor: ew-resize;
+  cursor: var(--cursor-ew);
 }
 .resize-handle--w {
   left: 0;
-  cursor: ew-resize;
+  cursor: var(--cursor-ew);
 }
 
 .resize-handle--ne,
@@ -990,22 +1152,22 @@ body {
 .resize-handle--nw {
   top: 0;
   left: 0;
-  cursor: nwse-resize;
+  cursor: var(--cursor-nwse);
 }
 .resize-handle--ne {
   top: 0;
   right: 0;
-  cursor: nesw-resize;
+  cursor: var(--cursor-nesw);
 }
 .resize-handle--sw {
   bottom: 0;
   left: 0;
-  cursor: nesw-resize;
+  cursor: var(--cursor-nesw);
 }
 .resize-handle--se {
   bottom: 0;
   right: 0;
-  cursor: nwse-resize;
+  cursor: var(--cursor-nwse);
 }
 
 @keyframes boot-cursor-blink {

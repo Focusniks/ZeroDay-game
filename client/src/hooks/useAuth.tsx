@@ -1,5 +1,4 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { SESSION_BOOT_DISPLAY_MS } from "../lib/bootConsoleSequence";
 import { useWebSocket } from "./useWebSocket";
 import type { User, WsMessage } from "../types/auth";
 
@@ -123,10 +122,8 @@ export function AuthProvider({
       localStorage.setItem(STORAGE_TOKEN_KEY, message.token);
       localStorage.setItem(STORAGE_USER_KEY, JSON.stringify(message.user));
 
-      if (!suppressNextSystemLoadingRef.current) {
-        setSystemLoading(true);
-        window.setTimeout(() => setSystemLoading(false), SESSION_BOOT_DISPLAY_MS);
-      }
+      // Disable session boot overlay after auth success to avoid flashing loading console.
+      setSystemLoading(false);
       suppressNextSystemLoadingRef.current = false;
 
       pendingRequestRef.current?.resolve();

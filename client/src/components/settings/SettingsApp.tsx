@@ -12,9 +12,7 @@ import {
 } from "../../lib/wallpapers";
 import { useAuth } from "../../hooks/useAuth";
 import { fileToBase64, initGameFs, listFs, writeBytesBase64Fs, type FsEntry } from "../../lib/gameFs";
-
-const TASKBAR_SAFE_HEIGHT = 72;
-let settingsSpawnSeq = 0;
+import { useWindowFrame } from "../window/useWindowFrame";
 
 type Props = {
   lang: GameLanguage;
@@ -100,225 +98,38 @@ export function SettingsApp({
       .replace(/\.+$/g, "")
       .trim();
 
-  const [termRect, setTermRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
-  const spawnOffsetRef = useRef((settingsSpawnSeq++ % 8) * 20);
-  const termRectRef = useRef(termRect);
-  const [maximized, setMaximized] = useState(false);
-  const maximizedRef = useRef(maximized);
-  const prevRectRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
-
-  const dragRef = useRef<{
-    startX: number;
-    startY: number;
-    originX: number;
-    originY: number;
-    pointerId: number;
-  } | null>(null);
+  const { rect, maximized, startDrag, startResize, toggleMaximize } = useWindowFrame({
+    defaultSize: { w: 920, h: 720 },
+    minSize: { w: 320, h: 220 }
+  });
 
   const [maximizedTick, setMaximizedTick] = useState(0);
-  useEffect(() => {
-    maximizedRef.current = maximized;
-  }, [maximized]);
-
-  useEffect(() => {
-    termRectRef.current = termRect;
-  }, [termRect]);
 
   const [resizingTick, setResizingTick] = useState(0);
-  const resizingRef = useRef<{
-    dir: "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
-    startX: number;
-    startY: number;
-    startRect: { x: number; y: number; w: number; h: number };
-    pointerId: number;
-  } | null>(null);
-
-  useEffect(() => {
-    const compute = () => {
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-      const taskbarH = TASKBAR_SAFE_HEIGHT;
-      const pad = 10;
-
-      const getDefaultRect = () => {
-        const w = Math.min(920, Math.floor(vw * 0.8));
-        const h = Math.min(720, Math.floor((vh - taskbarH) * 0.78));
-        const off = spawnOffsetRef.current;
-        const x = Math.min(Math.max(10, Math.floor((vw - w) / 2) + off), vw - w - 10);
-        const y = Math.min(Math.max(10, Math.floor((vh - taskbarH - h) / 2) + off), vh - taskbarH - h - 10);
-        return { x, y, w, h };
-      };
-
-      const getMaxRect = () => {
-        const w = Math.max(320, vw - pad * 2);
-        const h = Math.max(220, vh - taskbarH - pad * 2);
-        return { x: pad, y: pad, w, h };
-      };
-
-      setTermRect(maximizedRef.current ? getMaxRect() : getDefaultRect());
-    };
-
-    compute();
-    window.addEventListener("resize", compute);
-    return () => window.removeEventListener("resize", compute);
-  }, []);
-
-  useEffect(() => {
-    const onMove = (e: PointerEvent) => {
-      const cur = termRectRef.current;
-      if (!dragRef.current || !cur) return;
-      if (e.pointerId !== dragRef.current.pointerId) return;
-      const dx = e.clientX - dragRef.current.startX;
-      const dy = e.clientY - dragRef.current.startY;
-
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-      const taskbarH = TASKBAR_SAFE_HEIGHT;
-      const w = cur.w;
-      const h = cur.h;
-
-      const nextX = Math.min(Math.max(0, dragRef.current.originX + dx), vw - w);
-      const nextY = Math.min(Math.max(0, dragRef.current.originY + dy), vh - taskbarH - h);
-      setTermRect((prev) => (prev ? { ...prev, x: nextX, y: nextY } : prev));
-    };
-
-    const onUp = () => {
-      dragRef.current = null;
-    };
-
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    return () => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-    };
-  }, []);
-
-  useEffect(() => {
-    const onMove = (e: PointerEvent) => {
-      const r = resizingRef.current;
-      if (!r) return;
-      if (maximizedRef.current) return;
-
-      const { dir, startX, startRect } = r;
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-      const taskbarH = TASKBAR_SAFE_HEIGHT;
-      const minW = 320;
-      const minH = 220;
-
-      let x = startRect.x;
-      let y = startRect.y;
-      let w = startRect.w;
-      let h = startRect.h;
-
-      const dx = e.clientX - startX;
-      const dy = e.clientY - r.startY;
-
-      // Horizontal
-      if (dir === "e" || dir === "ne" || dir === "se") {
-        w = startRect.w + dx;
-      }
-      if (dir === "w" || dir === "nw" || dir === "sw") {
-        x = startRect.x + dx;
-        w = startRect.w - dx;
-      }
-
-      // Vertical
-      if (dir === "s" || dir === "se" || dir === "sw") {
-        h = startRect.h + dy;
-      }
-      if (dir === "n" || dir === "ne" || dir === "nw") {
-        y = startRect.y + dy;
-        h = startRect.h - dy;
-      }
-
-      w = Math.max(minW, w);
-      h = Math.max(minH, h);
-
-      x = Math.min(Math.max(0, x), vw - w);
-      y = Math.min(Math.max(0, y), vh - taskbarH - h);
-
-      h = Math.min(h, vh - taskbarH - y);
-      w = Math.min(w, vw - x);
-
-      setTermRect({ x, y, w, h });
-    };
-
-    const onUp = () => {
-      resizingRef.current = null;
-    };
-
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    return () => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-    };
-  }, []);
-
-  const toggleMaximize = () => {
-    if (!termRect) return;
-    if (maximizedRef.current) {
-      setMaximized(false);
-      setTermRect(prevRectRef.current ?? termRect);
-      prevRectRef.current = null;
-      setMaximizedTick((v) => v + 1);
-      return;
-    }
-    prevRectRef.current = termRect;
-    setMaximized(true);
-    const taskbarH = TASKBAR_SAFE_HEIGHT;
-    const pad = 10;
-    setTermRect({
-      x: pad,
-      y: pad,
-      w: Math.max(320, window.innerWidth - pad * 2),
-      h: Math.max(220, window.innerHeight - taskbarH - pad * 2)
-    });
+  const onToggleMaximize = () => {
+    toggleMaximize();
     setMaximizedTick((v) => v + 1);
   };
 
   return (
     <div
-      className={`settings-window fixed z-[75] relative flex flex-col overflow-hidden rounded-xl border border-white/10 bg-[#0d1117] shadow-2xl transition-all duration-180 ease-out ${
+      className={`settings-window absolute z-[75] pointer-events-auto flex flex-col overflow-hidden rounded-xl border border-white/10 bg-[#0d1117] shadow-2xl ${
         minimized ? "pointer-events-none opacity-0 scale-95" : ""
       }`}
       onMouseDown={() => onFocus?.()}
-      style={
-        termRect
-          ? {
-              left: termRect.x,
-              top: termRect.y,
-              width: termRect.w,
-              height: termRect.h,
-              ...(zIndex !== undefined ? { zIndex } : {})
-            }
-          : zIndex !== undefined
-            ? { zIndex }
-            : undefined
-      }
+      style={{
+        left: rect.x,
+        top: rect.y,
+        width: rect.w,
+        height: rect.h,
+        ...(zIndex !== undefined ? { zIndex } : {})
+      }}
       role="dialog"
       aria-label={title}
     >
       <div
         className="flex cursor-grab items-center justify-between border-b border-white/10 bg-[#2d3139] px-4 py-2.5"
-        onPointerDown={(e) => {
-          const target = e.target as HTMLElement | null;
-          if (target && (target.closest("button") || target.closest("input") || target.closest(".resize-handle"))) return;
-          if (maximizedRef.current) return;
-          if (!termRect) return;
-          e.preventDefault();
-          e.stopPropagation();
-          dragRef.current = {
-            startX: e.clientX,
-            startY: e.clientY,
-            originX: termRect.x,
-            originY: termRect.y,
-            pointerId: e.pointerId
-          };
-          (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
-        }}
+        onPointerDown={(e) => startDrag(e, e.currentTarget)}
         role="presentation"
       >
         <div className="flex items-center gap-3">
@@ -341,7 +152,7 @@ export function SettingsApp({
             aria-label="maximize"
             className="h-3 w-3 rounded-full bg-[#28c840] hover:opacity-90"
             onMouseDown={(e) => e.stopPropagation()}
-            onClick={toggleMaximize}
+            onClick={onToggleMaximize}
           />
         </div>
         <div className="flex-1 text-center text-xs text-slate-400">{title}</div>
@@ -354,17 +165,7 @@ export function SettingsApp({
             className="resize-handle resize-handle--n"
             onPointerDown={(e) => {
               onFocus?.();
-              if (!termRect) return;
-              e.stopPropagation();
-              e.preventDefault();
-              resizingRef.current = {
-                dir: "n",
-                startX: e.clientX,
-                startY: e.clientY,
-                startRect: termRect,
-                pointerId: e.pointerId
-              };
-              (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+              startResize(e, "n");
               setResizingTick((v) => v + 1);
             }}
           />
@@ -372,17 +173,7 @@ export function SettingsApp({
             className="resize-handle resize-handle--s"
             onPointerDown={(e) => {
               onFocus?.();
-              if (!termRect) return;
-              e.stopPropagation();
-              e.preventDefault();
-              resizingRef.current = {
-                dir: "s",
-                startX: e.clientX,
-                startY: e.clientY,
-                startRect: termRect,
-                pointerId: e.pointerId
-              };
-              (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+              startResize(e, "s");
               setResizingTick((v) => v + 1);
             }}
           />
@@ -390,17 +181,7 @@ export function SettingsApp({
             className="resize-handle resize-handle--e"
             onPointerDown={(e) => {
               onFocus?.();
-              if (!termRect) return;
-              e.stopPropagation();
-              e.preventDefault();
-              resizingRef.current = {
-                dir: "e",
-                startX: e.clientX,
-                startY: e.clientY,
-                startRect: termRect,
-                pointerId: e.pointerId
-              };
-              (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+              startResize(e, "e");
               setResizingTick((v) => v + 1);
             }}
           />
@@ -408,17 +189,7 @@ export function SettingsApp({
             className="resize-handle resize-handle--w"
             onPointerDown={(e) => {
               onFocus?.();
-              if (!termRect) return;
-              e.stopPropagation();
-              e.preventDefault();
-              resizingRef.current = {
-                dir: "w",
-                startX: e.clientX,
-                startY: e.clientY,
-                startRect: termRect,
-                pointerId: e.pointerId
-              };
-              (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+              startResize(e, "w");
               setResizingTick((v) => v + 1);
             }}
           />
@@ -427,11 +198,7 @@ export function SettingsApp({
             className="resize-handle resize-handle--nw"
             onPointerDown={(e) => {
               onFocus?.();
-              if (!termRect) return;
-              e.stopPropagation();
-              e.preventDefault();
-              resizingRef.current = { dir: "nw", startX: e.clientX, startY: e.clientY, startRect: termRect, pointerId: e.pointerId };
-              (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+              startResize(e, "nw");
               setResizingTick((v) => v + 1);
             }}
           />
@@ -439,11 +206,7 @@ export function SettingsApp({
             className="resize-handle resize-handle--ne"
             onPointerDown={(e) => {
               onFocus?.();
-              if (!termRect) return;
-              e.stopPropagation();
-              e.preventDefault();
-              resizingRef.current = { dir: "ne", startX: e.clientX, startY: e.clientY, startRect: termRect, pointerId: e.pointerId };
-              (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+              startResize(e, "ne");
               setResizingTick((v) => v + 1);
             }}
           />
@@ -451,11 +214,7 @@ export function SettingsApp({
             className="resize-handle resize-handle--sw"
             onPointerDown={(e) => {
               onFocus?.();
-              if (!termRect) return;
-              e.stopPropagation();
-              e.preventDefault();
-              resizingRef.current = { dir: "sw", startX: e.clientX, startY: e.clientY, startRect: termRect, pointerId: e.pointerId };
-              (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+              startResize(e, "sw");
               setResizingTick((v) => v + 1);
             }}
           />
@@ -463,11 +222,7 @@ export function SettingsApp({
             className="resize-handle resize-handle--se"
             onPointerDown={(e) => {
               onFocus?.();
-              if (!termRect) return;
-              e.stopPropagation();
-              e.preventDefault();
-              resizingRef.current = { dir: "se", startX: e.clientX, startY: e.clientY, startRect: termRect, pointerId: e.pointerId };
-              (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+              startResize(e, "se");
               setResizingTick((v) => v + 1);
             }}
           />

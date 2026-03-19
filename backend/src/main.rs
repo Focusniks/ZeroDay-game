@@ -1,6 +1,7 @@
 use actix_web::{middleware::Logger, web, App, HttpResponse, HttpServer, Responder};
 use dotenvy::dotenv;
 use log::info;
+use sqlx::migrate::Migrator;
 use sqlx::PgPool;
 use std::env;
 use std::path::Path;
@@ -38,7 +39,9 @@ async fn main() -> anyhow::Result<()> {
         .expect("HTTP_PORT must be a number");
 
     let pool = db::create_pool(&database_url).await?;
-    sqlx::migrate!("./migrations").run(&pool).await?;
+    let migrations_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
+    let migrator = Migrator::new(migrations_dir).await?;
+    migrator.run(&pool).await?;
 
     info!("DB connected and migrations applied");
 

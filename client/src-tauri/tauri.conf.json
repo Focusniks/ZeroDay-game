@@ -15,7 +15,7 @@
         "title": "ZeroDay",
         "fullscreen": true,
         "decorations": false,
-        "resizable": true
+        "resizable": false
       }
     ],
     "security": {

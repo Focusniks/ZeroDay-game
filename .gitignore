@@ -28,3 +28,5 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Local theme assets (not part of project source)
+/Breeze Chameleon Dark/

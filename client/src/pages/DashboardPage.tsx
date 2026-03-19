@@ -180,6 +180,10 @@ function StartOrbIcon({ size = 18 }: { size?: number }) {
   );
 }
 
+function TaskbarThemeIcon({ src, alt }: { src: string; alt: string }) {
+  return <img src={src} alt={alt} className="taskbar-theme-icon" draggable={false} />;
+}
+
 function WifiIcon({ ok }: { ok: boolean }) {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -218,11 +222,12 @@ export function DashboardPage() {
   const [clockMenuOpen, setClockMenuOpen] = useState(false);
   const clockMenuRef = useRef<HTMLDivElement | null>(null);
   const clockBtnRef = useRef<HTMLButtonElement | null>(null);
-  const [clockMenuPos, setClockMenuPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [clockMenuPos, setClockMenuPos] = useState<{ right: number; bottom: number }>({ right: 8, bottom: 72 });
   const [calendarView, setCalendarView] = useState(() => {
     const d = new Date();
     return { year: d.getFullYear(), month: d.getMonth() }; // month: 0..11
   });
+  const [calendarSelectedIso, setCalendarSelectedIso] = useState<string | null>(null);
 
   const customWallpaperRel = parseCustomWallpaperRelPath(config.wallpaper ?? null);
   const builtinWallpaperId = (customWallpaperRel ? DEFAULT_WALLPAPER : ((config.wallpaper ?? DEFAULT_WALLPAPER) as WallpaperId));
@@ -413,7 +418,7 @@ export function DashboardPage() {
   const DESK_TOP = 90;
   const DESK_RIGHT_PAD = 20;
   const DESK_BOTTOM_PAD = 12;
-  const TASKBAR_H = 48;
+  const TASKBAR_H = 56;
   const CELL_W = 160; // icon width (140) + horizontal gap
   const CELL_H = 78; // icon height + vertical gap
 
@@ -1021,7 +1026,11 @@ export function DashboardPage() {
       return;
     }
     const rect = anchor.getBoundingClientRect();
-    setClockMenuPos({ x: rect.right - 320, y: rect.bottom });
+    const viewportW = window.innerWidth;
+    const viewportH = window.innerHeight;
+    const right = Math.max(8, viewportW - rect.right);
+    const bottom = Math.max(72, viewportH - rect.top + 8);
+    setClockMenuPos({ right, bottom });
     setCalendarView({ year: now.getFullYear(), month: now.getMonth() });
     setClockMenuOpen(true);
     setNetMenuOpen(false);
@@ -1043,7 +1052,7 @@ export function DashboardPage() {
       active: activeWindowId === "terminal" && terminalOpen && !terminalMinimized,
       label: "Terminal",
       title: t.dockTerminal,
-      icon: <TerminalIcon />,
+      icon: <TaskbarThemeIcon src="/theme-icons/terminal.svg" alt="terminal" />,
       onClick: terminalTaskClick
     },
     {
@@ -1052,7 +1061,7 @@ export function DashboardPage() {
       active: activeWindowId === "settings" && settingsOpen && !settingsMinimized,
       label: t.dockSettings,
       title: t.dockSettings,
-      icon: <GearIcon size={18} />,
+      icon: <TaskbarThemeIcon src="/theme-icons/settings.svg" alt="settings" />,
       onClick: settingsTaskClick
     },
     {
@@ -1061,7 +1070,7 @@ export function DashboardPage() {
       active: activeWindowId === "files" && filesOpen && !filesMinimized,
       label: lang === "ru" ? "Файлы" : "Files",
       title: lang === "ru" ? "Файлы" : "Files",
-      icon: <FilesIcon />,
+      icon: <TaskbarThemeIcon src="/theme-icons/files.svg" alt="files" />,
       onClick: filesTaskClick
     },
     {
@@ -1070,7 +1079,7 @@ export function DashboardPage() {
       active: activeWindowId === "notes" && notesOpen && !notesMinimized,
       label: lang === "ru" ? "Заметки" : "Notes",
       title: lang === "ru" ? "Заметки" : "Notes",
-      icon: <NoteIcon />,
+      icon: <TaskbarThemeIcon src="/theme-icons/notes.svg" alt="notes" />,
       onClick: notesTaskClick
     },
     {
@@ -1079,7 +1088,7 @@ export function DashboardPage() {
       active: activeWindowId === "scripts" && scriptsOpen && !scriptsMinimized,
       label: lang === "ru" ? "Скрипты" : "Scripts",
       title: lang === "ru" ? "Скрипты" : "Scripts",
-      icon: <CodeIcon />,
+      icon: <TaskbarThemeIcon src="/theme-icons/scripts.svg" alt="scripts" />,
       onClick: scriptsTaskClick
     },
     {
@@ -1088,31 +1097,36 @@ export function DashboardPage() {
       active: activeWindowId === "media" && mediaOpen && !mediaMinimized,
       label: lang === "ru" ? "Медиа" : "Media",
       title: lang === "ru" ? "Медиа" : "Media",
-      icon: <MediaIcon />,
+      icon: <TaskbarThemeIcon src="/theme-icons/media.svg" alt="media" />,
       onClick: mediaTaskClick
     }
   ];
 
   return (
-    <div
-      className="game-ui relative min-h-screen text-slate-100"
-      onContextMenu={openDesktopContextMenu}
-      style={{
-        background: desktopBackground
-      }}
-    >
+    <div className="game-root">
+      <div
+        className="game-background-layer"
+        style={{
+          background: desktopBackground
+        }}
+      />
+      <div
+        className="game-ui relative min-h-screen text-slate-100"
+        onContextMenu={openDesktopContextMenu}
+      >
       {/* Desktop taskbar */}
-      <div className="taskbar">
-        <div className="taskbar-left">
+      <div className="taskbar taskbar-shell">
+        <div className="taskbar-zone-left">
           <div className="relative" ref={startRef}>
             <button
               type="button"
               onClick={() => setStartOpen((v) => !v)}
-              className="linux-start-button taskbar-start"
+              className="linux-start-button taskbar-start linux-launcher-btn"
               aria-label={lang === "ru" ? "Открыть меню" : "Open menu"}
               title={lang === "ru" ? "Меню" : "Menu"}
             >
-              <StartOrbIcon size={18} />
+              <TaskbarThemeIcon src="/theme-icons/start.svg" alt="start" />
+              <span className="linux-launcher-label">{lang === "ru" ? "Приложения" : "Applications"}</span>
             </button>
             {startOpen ? (
               <div className="start-menu-popup" role="menu" aria-label="start menu">
@@ -1526,28 +1540,29 @@ export function DashboardPage() {
           </div>
         </div>
 
-        <div className="taskbar-center">
-          <div className="taskbar-apps">
+        <div className="taskbar-zone-center">
+          <div className="taskbar-app-grid">
             {runningApps.filter((a) => a.shown).map((app) => (
               <button
                 key={app.key}
                 type="button"
                 onClick={app.onClick}
-                className={`taskbar-app ${app.active ? "taskbar-app--active" : ""}`}
+                className={`taskbar-app taskbar-app-chip ${app.active ? "taskbar-app--active" : ""}`}
                 aria-label={app.label}
                 title={app.title}
               >
-                {app.icon}
+                <span className="taskbar-app-chip-icon">{app.icon}</span>
+                <span className="taskbar-app-chip-label">{app.label}</span>
               </button>
             ))}
           </div>
         </div>
 
-        <div className="taskbar-right">
-          <div className="taskbar-right-icons">
+        <div className="taskbar-zone-right">
+          <div className="taskbar-status-icons">
             <button
               type="button"
-              className={`taskbar-app taskbar-net-btn ${
+              className={`taskbar-app taskbar-status-btn ${
                 netIsConnected ? "taskbar-net-btn--ok" : netIsConnecting ? "taskbar-net-btn--connecting" : "taskbar-net-btn--bad"
               }`}
               onClick={() => setNetMenuOpen((v) => !v)}
@@ -1559,7 +1574,7 @@ export function DashboardPage() {
 
             <button
               type="button"
-              className="taskbar-app"
+              className="taskbar-app taskbar-status-btn"
               onClick={() => {
                 setNetMenuOpen(false);
                 openSettings();
@@ -1576,7 +1591,7 @@ export function DashboardPage() {
           <button
             ref={clockBtnRef}
             type="button"
-            className="taskbar-clock"
+            className="taskbar-clock linux-clock-btn"
             onPointerDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -1596,8 +1611,8 @@ export function DashboardPage() {
               ref={clockMenuRef}
               className="clock-popover"
               style={{
-                left: Math.max(8, Math.min(clockMenuPos.x, window.innerWidth - 320)),
-                top: Math.min(clockMenuPos.y, window.innerHeight - 380)
+                right: clockMenuPos.right,
+                bottom: clockMenuPos.bottom
               }}
               role="dialog"
               aria-label={lang === "ru" ? "Календарь" : "Calendar"}
@@ -1619,18 +1634,21 @@ export function DashboardPage() {
                 const todayMonth = today.getMonth();
                 const todayYear = today.getFullYear();
 
+                const monthIso = `${year}-${String(month + 1).padStart(2, "0")}`;
                 const cells = Array.from({ length: 42 }, (_, idx) => {
                   const dayNum = idx - startOffset + 1;
-                  if (dayNum < 1 || dayNum > daysInMonth) return null;
+                  const inCurrentMonth = dayNum >= 1 && dayNum <= daysInMonth;
+                  if (!inCurrentMonth) return <div key={idx} className="clock-day clock-day--ghost" />;
                   const isToday = todayYear === year && todayMonth === month && dayNum === todayDay;
+                  const iso = `${monthIso}-${String(dayNum).padStart(2, "0")}`;
+                  const isSelected = calendarSelectedIso === iso;
                   return (
                     <button
                       key={idx}
                       type="button"
-                      className={`clock-day ${isToday ? "clock-day--today" : ""}`}
+                      className={`clock-day ${isToday ? "clock-day--today" : ""} ${isSelected ? "clock-day--selected" : ""}`}
                       onClick={() => {
-                        // We don't need persistence, but clicking should feel interactive.
-                        setCalendarView((v) => ({ ...v }));
+                        setCalendarSelectedIso(iso);
                       }}
                     >
                       {dayNum}
@@ -1670,6 +1688,17 @@ export function DashboardPage() {
 
                     <div className="clock-popover-time">
                       <span className="clock-time">{clockText}</span>
+                      <button
+                        type="button"
+                        className="clock-today-btn"
+                        onClick={() => {
+                          setCalendarView({ year: now.getFullYear(), month: now.getMonth() });
+                          const iso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+                          setCalendarSelectedIso(iso);
+                        }}
+                      >
+                        {lang === "ru" ? "Сегодня" : "Today"}
+                      </button>
                     </div>
 
                     <div className="clock-weekdays">
@@ -1690,7 +1719,7 @@ export function DashboardPage() {
           {netMenuOpen ? (
             <div
               ref={netMenuRef}
-              className="taskbar-net-menu"
+              className="taskbar-net-menu linux-network-popover"
               role="menu"
               aria-label={lang === "ru" ? "Меню сети" : "Network menu"}
             >
@@ -2308,104 +2337,107 @@ export function DashboardPage() {
         </div>
       ) : null}
 
-      {/* Settings app windows */}
-      {settingsWindows.map((w) => (
-        <SettingsApp
-          key={w.id}
-          lang={lang}
-          onClose={() => closeSettingsWindow(w.id)}
-          onMinimize={() => minimizeSettingsWindow(w.id)}
-          minimized={w.minimized}
-          initialTab={w.initialTab}
-          onFocus={() => focusSettingsWindow(w.id)}
-          zIndex={w.z}
-        />
-      ))}
+      <div className="window-stage">
+        {/* Settings app windows */}
+        {settingsWindows.map((w) => (
+          <SettingsApp
+            key={w.id}
+            lang={lang}
+            onClose={() => closeSettingsWindow(w.id)}
+            onMinimize={() => minimizeSettingsWindow(w.id)}
+            minimized={w.minimized}
+            initialTab={w.initialTab}
+            onFocus={() => focusSettingsWindow(w.id)}
+            zIndex={w.z}
+          />
+        ))}
 
-      {/* Files app windows */}
-      {filesWindows.map((w) => (
-        <FilesApp
-          key={w.id}
-          lang={lang}
-          startRelPath={w.startRelPath}
-          onMinimize={() => minimizeFilesWindow(w.id)}
-          onClose={() => closeFilesWindow(w.id)}
-          minimized={w.minimized}
-            diskCapacityMb={user?.disk_capacity_mb}
-          onOpenNotes={(relPath) => openNotes(relPath)}
-          onOpenScript={(relPath) => openScripts(relPath)}
-          onOpenMedia={(relPath) => openMedia(relPath)}
-          onFocus={() => focusFilesWindow(w.id)}
-          zIndex={w.z}
-        />
-      ))}
+        {/* Files app windows */}
+        {filesWindows.map((w) => (
+          <FilesApp
+            key={w.id}
+            lang={lang}
+            startRelPath={w.startRelPath}
+            onMinimize={() => minimizeFilesWindow(w.id)}
+            onClose={() => closeFilesWindow(w.id)}
+            minimized={w.minimized}
+              diskCapacityMb={user?.disk_capacity_mb}
+            onOpenNotes={(relPath) => openNotes(relPath)}
+            onOpenScript={(relPath) => openScripts(relPath)}
+            onOpenMedia={(relPath) => openMedia(relPath)}
+            onFocus={() => focusFilesWindow(w.id)}
+            zIndex={w.z}
+          />
+        ))}
 
-      {/* Notes app windows */}
-      {notesWindows.map((w) => (
-        <NotesApp
-          key={w.id}
-          lang={lang}
-          initialRelPath={w.initialRelPath}
-          onMinimize={() => minimizeNotesWindow(w.id)}
-          onClose={() => closeNotesWindow(w.id)}
-          minimized={w.minimized}
-          onFocus={() => focusNotesWindow(w.id)}
-          zIndex={w.z}
-        />
-      ))}
+        {/* Notes app windows */}
+        {notesWindows.map((w) => (
+          <NotesApp
+            key={w.id}
+            lang={lang}
+            initialRelPath={w.initialRelPath}
+            onMinimize={() => minimizeNotesWindow(w.id)}
+            onClose={() => closeNotesWindow(w.id)}
+            minimized={w.minimized}
+            onFocus={() => focusNotesWindow(w.id)}
+            zIndex={w.z}
+          />
+        ))}
 
-      {/* Code editor app windows */}
-      {scriptsWindows.map((w) => (
-        <CodeEditorApp
-          key={w.id}
-          lang={lang}
-          initialRelPath={w.initialRelPath}
-          onMinimize={() => minimizeScriptsWindow(w.id)}
-          onClose={() => closeScriptsWindow(w.id)}
-          minimized={w.minimized}
-          onFocus={() => focusScriptsWindow(w.id)}
-          zIndex={w.z}
-          onRunInTerminal={(scriptRelPath) => {
-            openTerminal();
-            window.dispatchEvent(
-              new CustomEvent("zeroday:terminal-run", {
-                detail: { cmd: `hackrun ${scriptRelPath}` }
-              })
-            );
-          }}
-        />
-      ))}
+        {/* Code editor app windows */}
+        {scriptsWindows.map((w) => (
+          <CodeEditorApp
+            key={w.id}
+            lang={lang}
+            initialRelPath={w.initialRelPath}
+            onMinimize={() => minimizeScriptsWindow(w.id)}
+            onClose={() => closeScriptsWindow(w.id)}
+            minimized={w.minimized}
+            onFocus={() => focusScriptsWindow(w.id)}
+            zIndex={w.z}
+            onRunInTerminal={(scriptRelPath) => {
+              openTerminal();
+              window.dispatchEvent(
+                new CustomEvent("zeroday:terminal-run", {
+                  detail: { cmd: `hackrun ${scriptRelPath}` }
+                })
+              );
+            }}
+          />
+        ))}
 
-      {/* Media app windows */}
-      {mediaWindows.map((w) => (
-        <MediaApp
-          key={w.id}
-          lang={lang}
-          initialRelPath={w.initialRelPath}
-          onMinimize={() => minimizeMediaWindow(w.id)}
-          onClose={() => closeMediaWindow(w.id)}
-          minimized={w.minimized}
-          onFocus={() => focusMediaWindow(w.id)}
-          zIndex={w.z}
-        />
-      ))}
+        {/* Media app windows */}
+        {mediaWindows.map((w) => (
+          <MediaApp
+            key={w.id}
+            lang={lang}
+            initialRelPath={w.initialRelPath}
+            onMinimize={() => minimizeMediaWindow(w.id)}
+            onClose={() => closeMediaWindow(w.id)}
+            minimized={w.minimized}
+            onFocus={() => focusMediaWindow(w.id)}
+            zIndex={w.z}
+          />
+        ))}
 
-      {/* Terminal window */}
-      {terminalOpen || terminalMinimized ? (
-        <TerminalApp
-          user={user}
-          lang={lang}
-          onExitGame={exitGame}
-          onLogout={exitAccount}
-          onMinimize={minimizeTerminal}
-          onClose={closeTerminal}
-          minimized={terminalMinimized && !terminalOpen}
-          injectKey={terminalInjectKey}
-          injectLines={terminalInjectLines}
-          onFocus={focusTerminal}
-          zIndex={terminalZ}
-        />
-      ) : null}
+        {/* Terminal window */}
+        {terminalOpen || terminalMinimized ? (
+          <TerminalApp
+            user={user}
+            lang={lang}
+            onExitGame={exitGame}
+            onLogout={exitAccount}
+            onMinimize={minimizeTerminal}
+            onClose={closeTerminal}
+            minimized={terminalMinimized && !terminalOpen}
+            injectKey={terminalInjectKey}
+            injectLines={terminalInjectLines}
+            onFocus={focusTerminal}
+            zIndex={terminalZ}
+          />
+        ) : null}
+      </div>
+      </div>
     </div>
   );
 }
