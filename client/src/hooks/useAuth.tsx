@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { SESSION_BOOT_DISPLAY_MS } from "../lib/bootConsoleSequence";
 import { useWebSocket } from "./useWebSocket";
 import type { User, WsMessage } from "../types/auth";
 
@@ -19,6 +20,15 @@ const STORAGE_USER_KEY = "zeroday.user";
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+const DEFAULT_WS_URL = "ws://127.0.0.1:8080";
+
+function normalizeWsUrl(url: string): string {
+  // Windows часто резолвит `localhost` в IPv6 (::1), а backend может слушать только IPv4 (127.0.0.1).
+  return url
+    .replace(/^ws:\/\/localhost\b/i, "ws://127.0.0.1")
+    .replace(/^wss:\/\/localhost\b/i, "wss://127.0.0.1");
+}
+
 type PendingAuthRequest = {
   resolve: () => void;
   reject: (error: Error) => void;
@@ -31,8 +41,11 @@ export function AuthProvider({
   children: React.ReactNode;
   wsUrlOverride?: string | null;
 }) {
-  const envWs = import.meta.env.VITE_WS_URL as string;
-  const wsUrl = (wsUrlOverride && wsUrlOverride.trim().length > 0 ? wsUrlOverride.trim() : envWs) || envWs;
+  const envWs = import.meta.env.VITE_WS_URL as string | undefined;
+  const override = typeof wsUrlOverride === "string" ? wsUrlOverride.trim() : "";
+  const wsUrlRaw = override.length > 0 ? override : envWs;
+  const wsUrlFallback = wsUrlRaw && wsUrlRaw.trim().length > 0 ? wsUrlRaw : DEFAULT_WS_URL;
+  const wsUrl = normalizeWsUrl(wsUrlFallback);
   const { readyState, lastMessage, sendJson } = useWebSocket(wsUrl);
 
   const [token, setToken] = useState<string | null>(null);
@@ -40,6 +53,9 @@ export function AuthProvider({
   const [systemLoading, setSystemLoading] = useState(false);
 
   const pendingRequestRef = useRef<PendingAuthRequest | null>(null);
+  // При регистрации во время мастера установки мы не хотим показывать console-оверлей,
+  // чтобы пользователь успевал прочитать факты и пройти установку.
+  const suppressNextSystemLoadingRef = useRef(false);
 
   useEffect(() => {
     const storedToken = localStorage.getItem(STORAGE_TOKEN_KEY);
@@ -75,8 +91,11 @@ export function AuthProvider({
       localStorage.setItem(STORAGE_TOKEN_KEY, message.token);
       localStorage.setItem(STORAGE_USER_KEY, JSON.stringify(message.user));
 
-      setSystemLoading(true);
-      window.setTimeout(() => setSystemLoading(false), 1700);
+      if (!suppressNextSystemLoadingRef.current) {
+        setSystemLoading(true);
+        window.setTimeout(() => setSystemLoading(false), SESSION_BOOT_DISPLAY_MS);
+      }
+      suppressNextSystemLoadingRef.current = false;
 
       pendingRequestRef.current?.resolve();
       pendingRequestRef.current = null;
@@ -98,6 +117,7 @@ export function AuthProvider({
   const login = (email: string, password: string) =>
     new Promise<void>((resolve, reject) => {
       pendingRequestRef.current = { resolve, reject };
+      suppressNextSystemLoadingRef.current = false;
       try {
         sendJson({
           type: "Login",
@@ -113,6 +133,7 @@ export function AuthProvider({
   const register = (username: string, email: string, password: string) =>
     new Promise<void>((resolve, reject) => {
       pendingRequestRef.current = { resolve, reject };
+      suppressNextSystemLoadingRef.current = true;
       try {
         sendJson({
           type: "Register",

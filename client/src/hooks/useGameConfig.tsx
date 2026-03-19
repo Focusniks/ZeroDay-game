@@ -6,6 +6,7 @@ import {
   saveGameConfig,
   type GameConfigFile
 } from "../lib/gameConfig";
+import { EARLY_BOOT_DISPLAY_MS } from "../lib/bootConsoleSequence";
 
 type GameConfigContextValue = {
   ready: boolean;
@@ -34,8 +35,11 @@ export function GameConfigProvider({ children }: { children: React.ReactNode }) 
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
+      const t0 = performance.now();
       await reload();
-      await new Promise((r) => setTimeout(r, 900));
+      const elapsed = performance.now() - t0;
+      const pad = Math.max(120, EARLY_BOOT_DISPLAY_MS - elapsed);
+      await new Promise((r) => setTimeout(r, pad));
       if (!cancelled) setReady(true);
     };
     void run();

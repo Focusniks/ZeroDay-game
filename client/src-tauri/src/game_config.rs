@@ -11,6 +11,12 @@ pub struct GameConfig {
     pub setup_complete: bool,
     pub ws_url: Option<String>,
     pub last_login_email_hint: Option<String>,
+    /// Язык интерфейса игры: "ru" | "en" (задаётся раскладкой в мастере установки).
+    #[serde(default)]
+    pub game_language: Option<String>,
+    /// IANA часовой пояс, например "Europe/Moscow".
+    #[serde(default)]
+    pub timezone: Option<String>,
 }
 
 impl Default for GameConfig {
@@ -20,6 +26,8 @@ impl Default for GameConfig {
             setup_complete: false,
             ws_url: None,
             last_login_email_hint: None,
+            game_language: None,
+            timezone: None,
         }
     }
 }

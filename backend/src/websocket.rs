@@ -5,7 +5,7 @@ use jsonwebtoken::{Algorithm, Header, Validation};
 use log::{error, info};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use sqlx::{Error as SqlxError, PgPool};
 use std::net::SocketAddr;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::{
@@ -211,7 +211,7 @@ pub async fn register_user(
     .bind(ip_address)
     .fetch_one(pool)
     .await
-    .map_err(|e| anyhow!("Failed to register user: {e}"))?;
+    .map_err(map_register_sqlx_error)?;
 
     let token = generate_jwt(db_user.id, jwt_secret)?;
     Ok((token, to_public_user(db_user)))
@@ -223,25 +223,44 @@ pub async fn login_user(
     email: &str,
     password: &str,
 ) -> anyhow::Result<(String, User)> {
-    let email = email.trim().to_lowercase();
-    if email.is_empty() || password.is_empty() {
-        return Err(anyhow!("Email and password are required"));
+    let identifier = email.trim();
+    if identifier.is_empty() || password.is_empty() {
+        return Err(anyhow!("Укажите логин и пароль."));
     }
 
-    let db_user = sqlx::query_as::<_, DbUser>(
-        r#"
-        SELECT id, username, email, password_hash, ip_address, level, xp, reputation
-        FROM users
-        WHERE email = $1
-        "#,
-    )
-    .bind(email)
-    .fetch_optional(pool)
-    .await?
-    .ok_or_else(|| anyhow!("Invalid credentials"))?;
+    // В клиенте поле называется `email`, но мы поддерживаем вход:
+    // - по email (если в строке есть '@')
+    // - по username (если '@' нет)
+    let is_email = identifier.contains('@');
+    let normalized = identifier.to_lowercase();
+
+    let db_user = if is_email {
+        sqlx::query_as::<_, DbUser>(
+            r#"
+            SELECT id, username, email, password_hash, ip_address, level, xp, reputation
+            FROM users
+            WHERE email = $1
+            "#,
+        )
+        .bind(normalized)
+        .fetch_optional(pool)
+        .await?
+    } else {
+        sqlx::query_as::<_, DbUser>(
+            r#"
+            SELECT id, username, email, password_hash, ip_address, level, xp, reputation
+            FROM users
+            WHERE username = $1
+            "#,
+        )
+        .bind(normalized)
+        .fetch_optional(pool)
+        .await?
+    }
+    .ok_or_else(|| anyhow!("Неверный логин или пароль."))?;
 
     if !verify(password, &db_user.password_hash).unwrap_or(false) {
-        return Err(anyhow!("Invalid credentials"));
+        return Err(anyhow!("Неверный логин или пароль."));
     }
 
     sqlx::query("UPDATE users SET last_login = NOW() WHERE id = $1")
@@ -281,24 +300,41 @@ pub fn generate_ip() -> String {
     format!("192.168.{a}.{b}")
 }
 
+/// Превращает ошибку INSERT при регистрации в понятные сообщения для клиента (без текста PostgreSQL).
+fn map_register_sqlx_error(e: SqlxError) -> anyhow::Error {
+    if let Some(db) = e.as_database_error() {
+        if db.code().as_deref() == Some("23505") {
+            let c = db.constraint().unwrap_or("");
+            if c.contains("email") {
+                return anyhow!("Этот адрес электронной почты уже зарегистрирован в сети ZeroDay.");
+            }
+            if c.contains("username") {
+                return anyhow!("Это имя пользователя уже занято в системе ZeroDay.");
+            }
+            return anyhow!("Учётная запись с такими данными уже существует в ZeroDay.");
+        }
+    }
+    anyhow!("Не удалось завершить регистрацию. Попробуйте позже.")
+}
+
 fn validate_register_input(username: &str, email: &str, password: &str) -> anyhow::Result<()> {
     let username = username.trim();
     let email = email.trim();
 
     if !(3..=20).contains(&username.len()) {
-        return Err(anyhow!("Username must be 3-20 characters"));
+        return Err(anyhow!("Имя пользователя: от 3 до 20 символов."));
     }
     if !username
         .chars()
         .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_')
     {
-        return Err(anyhow!("Username can only contain a-z, 0-9 and _"));
+        return Err(anyhow!("Имя пользователя: только латиница в нижнем регистре, цифры и символ «_»."));
     }
     if !email.contains('@') || !email.contains('.') {
-        return Err(anyhow!("Invalid email format"));
+        return Err(anyhow!("Некорректный формат email."));
     }
     if password.len() < 8 {
-        return Err(anyhow!("Password must be at least 8 characters"));
+        return Err(anyhow!("Пароль должен быть не короче 8 символов."));
     }
     Ok(())
 }

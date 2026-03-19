@@ -4,26 +4,79 @@ type ReadyState = "connecting" | "open" | "closed" | "error";
 
 export function useWebSocket(url: string) {
   const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimerRef = useRef<number | null>(null);
+  const attemptsRef = useRef(0);
+  const backoffMsRef = useRef(500);
+  const shouldReconnectRef = useRef(true);
   const [readyState, setReadyState] = useState<ReadyState>("connecting");
   const [lastMessage, setLastMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    const ws = new WebSocket(url);
-    wsRef.current = ws;
-    setReadyState("connecting");
+    shouldReconnectRef.current = true;
+    attemptsRef.current = 0;
+    backoffMsRef.current = 500;
+    setLastMessage(null);
 
-    ws.onopen = () => setReadyState("open");
-    ws.onclose = () => setReadyState("closed");
-    ws.onerror = () => setReadyState("error");
-    ws.onmessage = (event) => {
-      if (typeof event.data === "string") {
-        setLastMessage(event.data);
+    const clearTimer = () => {
+      if (reconnectTimerRef.current) {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
       }
     };
 
-    return () => {
+    const scheduleReconnect = () => {
+      if (!shouldReconnectRef.current) return;
+      attemptsRef.current += 1;
+      const delay = Math.min(10000, backoffMsRef.current * Math.pow(2, attemptsRef.current - 1));
+      backoffMsRef.current = delay;
+
+      clearTimer();
+      reconnectTimerRef.current = window.setTimeout(() => {
+        connect();
+      }, delay);
+    };
+
+    const connect = () => {
+      setReadyState("connecting");
+
+      let ws: WebSocket;
       try {
-        ws.close();
+        ws = new WebSocket(url);
+      } catch (e) {
+        setReadyState("error");
+        scheduleReconnect();
+        return;
+      }
+
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        attemptsRef.current = 0;
+        backoffMsRef.current = 500;
+        setReadyState("open");
+      };
+      ws.onclose = () => {
+        setReadyState("closed");
+        scheduleReconnect();
+      };
+      ws.onerror = () => {
+        setReadyState("error");
+        // onclose will also schedule reconnect
+      };
+      ws.onmessage = (event) => {
+        if (typeof event.data === "string") {
+          setLastMessage(event.data);
+        }
+      };
+    };
+
+    connect();
+
+    return () => {
+      shouldReconnectRef.current = false;
+      clearTimer();
+      try {
+        wsRef.current?.close();
       } catch {
         // ignore close race
       }

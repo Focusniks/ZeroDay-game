@@ -1,10 +1,16 @@
 import { invoke } from "@tauri-apps/api/core";
 
+export type GameLanguage = "ru" | "en";
+
 export type GameConfigFile = {
   version: number;
   setupComplete: boolean;
   wsUrl?: string;
   lastLoginEmailHint?: string;
+  /** Язык интерфейса (из раскладки в мастере установки). */
+  gameLanguage?: GameLanguage;
+  /** IANA, например Europe/Moscow */
+  timezone?: string;
 };
 
 const LS_KEY = "zeroday.game.config.v1";
@@ -17,8 +23,14 @@ export const DEFAULT_GAME_CONFIG: GameConfigFile = {
   version: 1,
   setupComplete: false,
   wsUrl: undefined,
-  lastLoginEmailHint: undefined
+  lastLoginEmailHint: undefined,
+  gameLanguage: undefined,
+  timezone: undefined
 };
+
+export function normalizeGameLanguage(value: string | undefined | null): GameLanguage {
+  return value === "en" ? "en" : "ru";
+}
 
 export async function loadGameConfig(): Promise<GameConfigFile> {
   if (!isTauriRuntime()) {

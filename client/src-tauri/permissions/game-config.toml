@@ -12,3 +12,53 @@ commands.allow = ["get_game_config_path"]
 identifier = "allow-save-game-config"
 description = "Write zeroday_game.json next to the game executable."
 commands.allow = ["save_game_config"]
+
+[[permission]]
+identifier = "allow-fs-init"
+description = "Initialize the in-game filesystem root."
+commands.allow = ["fs_init"]
+
+[[permission]]
+identifier = "allow-fs-root-path"
+description = "Expose filesystem root path."
+commands.allow = ["fs_root_path"]
+
+[[permission]]
+identifier = "allow-fs-list"
+description = "List directories inside in-game filesystem root."
+commands.allow = ["fs_list"]
+
+[[permission]]
+identifier = "allow-fs-mkdir"
+description = "Create folders inside in-game filesystem root."
+commands.allow = ["fs_mkdir"]
+
+[[permission]]
+identifier = "allow-fs-delete"
+description = "Delete files/folders inside in-game filesystem root."
+commands.allow = ["fs_delete"]
+
+[[permission]]
+identifier = "allow-fs-read-text"
+description = "Read text files inside in-game filesystem root."
+commands.allow = ["fs_read_text"]
+
+[[permission]]
+identifier = "allow-fs-write-text"
+description = "Write text files inside in-game filesystem root."
+commands.allow = ["fs_write_text"]
+
+[[permission]]
+identifier = "allow-fs-read-bytes"
+description = "Read binary files as base64 inside in-game filesystem root."
+commands.allow = ["fs_read_bytes_base64"]
+
+[[permission]]
+identifier = "allow-fs-write-bytes"
+description = "Write binary files from base64 inside in-game filesystem root."
+commands.allow = ["fs_write_bytes_base64"]
+
+[[permission]]
+identifier = "allow-fs-move"
+description = "Move/rename files inside in-game filesystem root."
+commands.allow = ["fs_move"]

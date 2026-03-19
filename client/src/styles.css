@@ -16,3 +16,839 @@ body {
     "Apple Color Emoji", "Segoe UI Emoji";
 }
 
+/* Hide browser UI (scrollbars) + disable text selection in game */
+* {
+  scrollbar-width: none; /* Firefox */
+}
+*::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.game-ui {
+  user-select: none;
+}
+.game-ui .terminal-input {
+  user-select: text;
+}
+
+.login-wallpaper {
+  background-image:
+    linear-gradient(165deg, rgba(2, 6, 23, 0.82) 0%, rgba(15, 23, 42, 0.82) 40%, rgba(0, 0, 0, 0.9) 100%),
+    url("https://images.unsplash.com/photo-1710013702247-b71964071399?fm=jpg&q=60&w=3000&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D");
+  background-size: cover;
+  background-position: center;
+}
+
+.linux-start-button {
+  user-select: none;
+  cursor: pointer;
+  background: #1b2533;
+  color: rgba(226, 232, 240, 1);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.linux-start-button:hover {
+  background: #223042;
+  border-color: rgba(45, 212, 191, 0.35);
+}
+
+.linux-start-button--task {
+  padding: 10px 14px;
+  border-radius: 10px;
+}
+
+.linux-menu-popup {
+  position: absolute;
+  left: 0;
+  top: auto;
+  bottom: calc(100% + 10px);
+  width: 260px;
+  background: #0b1220;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 10px;
+  box-shadow: 0 26px 60px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+  z-index: 120;
+}
+
+.linux-menu-header {
+  padding: 12px 14px;
+  font-size: 12px;
+  color: rgba(148, 163, 184, 0.95);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.linux-menu-sep {
+  height: 1px;
+  background: rgba(148, 163, 184, 0.14);
+}
+
+.linux-menu-item {
+  width: 100%;
+  text-align: left;
+  padding: 10px 14px;
+  background: transparent;
+  color: rgba(226, 232, 240, 1);
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: background-color 120ms ease;
+}
+
+.linux-menu-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.linux-menu-item-ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(226, 232, 240, 1);
+}
+
+.taskbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  background: rgba(10, 15, 25, 0.78);
+  border-top: 1px solid rgba(148, 163, 184, 0.16);
+  backdrop-filter: blur(10px);
+  z-index: 60;
+}
+
+.taskbar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.taskbar-start {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.28);
+}
+
+.taskbar-apps {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.taskbar-app {
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(226, 232, 240, 1);
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.taskbar-app:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(45, 212, 191, 0.35);
+}
+
+.taskbar-app--active {
+  background: rgba(45, 212, 191, 0.12);
+  border-color: rgba(45, 212, 191, 0.45);
+}
+
+.taskbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.taskbar-right-icons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.taskbar-clock {
+  height: 44px;
+  min-width: 78px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(226, 232, 240, 1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.taskbar-clock:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(45, 212, 191, 0.35);
+}
+
+.taskbar-net-btn--ok {
+  color: rgba(45, 212, 191, 1);
+  border-color: rgba(45, 212, 191, 0.6);
+  background: rgba(45, 212, 191, 0.12);
+}
+
+.taskbar-net-btn--connecting {
+  color: rgba(59, 130, 246, 1);
+  border-color: rgba(59, 130, 246, 0.55);
+  background: rgba(59, 130, 246, 0.12);
+}
+
+.taskbar-net-btn--bad {
+  color: rgba(248, 113, 113, 1);
+  border-color: rgba(248, 113, 113, 0.55);
+  background: rgba(248, 113, 113, 0.10);
+}
+
+.taskbar-net-menu {
+  position: fixed;
+  right: 12px;
+  bottom: 48px;
+  width: 300px;
+  background: rgba(20, 26, 38, 0.96);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 12px;
+  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+  z-index: 120;
+  color: rgba(226, 232, 240, 1);
+}
+
+.taskbar-net-menu-header {
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+  gap: 10px;
+}
+
+.taskbar-net-menu-title {
+  font-size: 12px;
+  color: rgba(148, 163, 184, 0.95);
+  font-weight: 800;
+}
+
+.taskbar-net-menu-pill {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.taskbar-net-menu-pill.is-ok {
+  border-color: rgba(45, 212, 191, 0.55);
+  color: rgba(45, 212, 191, 1);
+}
+
+.taskbar-net-menu-pill.is-warn {
+  border-color: rgba(59, 130, 246, 0.55);
+  color: rgba(59, 130, 246, 1);
+}
+
+.taskbar-net-menu-pill.is-bad {
+  border-color: rgba(248, 113, 113, 0.6);
+  color: rgba(248, 113, 113, 1);
+}
+
+.taskbar-net-menu-url {
+  padding: 10px 12px 6px 12px;
+  font-size: 12px;
+  color: rgba(226, 232, 240, 0.92);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.taskbar-net-menu-actions {
+  padding: 10px 12px 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.taskbar-net-menu-item {
+  width: 100%;
+  text-align: left;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: rgba(226, 232, 240, 1);
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.taskbar-net-menu-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(45, 212, 191, 0.35);
+}
+
+.start-menu-popup {
+  position: fixed;
+  z-index: 200;
+  left: 16px;
+  bottom: 48px; /* above taskbar */
+  width: 560px;
+  height: 520px;
+  background: #3f444c;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  border-radius: 8px;
+  box-shadow: 0 40px 90px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+  color: rgba(226, 232, 240, 1);
+}
+
+.start-menu-left {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 78px;
+  width: 190px;
+  background: #353a43;
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.start-menu-left-title {
+  padding: 14px 14px 8px 14px;
+  font-size: 12px;
+  color: rgba(148, 163, 184, 0.95);
+}
+
+.start-menu-left-list {
+  padding: 4px 8px 8px 8px;
+  overflow-y: auto;
+  height: 100%;
+}
+
+.start-menu-left-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 6px;
+  color: rgba(226, 232, 240, 1);
+  font-size: 14px;
+  cursor: default;
+}
+
+.start-menu-left-item.is-active {
+  background: rgba(148, 163, 184, 0.18);
+}
+
+.start-menu-left-item.is-clickable {
+  cursor: pointer;
+}
+
+.start-menu-left-item.is-clickable:hover {
+  background: rgba(148, 163, 184, 0.22);
+}
+
+.start-menu-left-arrow {
+  margin-left: auto;
+  opacity: 0.95;
+}
+
+.start-menu-folder-sublist {
+  padding-left: 20px;
+  padding-bottom: 8px;
+}
+
+.start-menu-subitem {
+  padding: 7px 10px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: rgba(226, 232, 240, 1);
+  font-size: 14px;
+  user-select: none;
+}
+
+.start-menu-subitem.is-clickable:hover {
+  background: rgba(148, 163, 184, 0.22);
+}
+
+.start-menu-subitem-ico {
+  width: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.start-menu-search-results {
+  padding: 4px 0;
+}
+
+.start-menu-search-result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin-bottom: 6px;
+}
+
+.start-menu-search-result:hover {
+  background: rgba(148, 163, 184, 0.14);
+  cursor: pointer;
+}
+
+.start-menu-search-result-ico {
+  width: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.start-menu-search-empty {
+  padding: 16px 0 0 0;
+  color: rgba(148, 163, 184, 0.95);
+  font-size: 14px;
+}
+
+.start-menu-left-item-ico {
+  width: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.95;
+  font-size: 16px;
+}
+
+.start-menu-left-item-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.start-menu-right {
+  position: absolute;
+  left: 190px;
+  top: 0;
+  bottom: 78px;
+  right: 0;
+  background: #3f444c;
+  padding: 18px 18px 0 18px;
+}
+
+.start-menu-user {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding-bottom: 10px;
+}
+
+.start-menu-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(45, 212, 191, 0.22);
+  color: rgba(226, 232, 240, 1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+}
+
+.start-menu-username {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.start-menu-places {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+}
+
+.start-menu-place {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  color: rgba(226, 232, 240, 1);
+  font-size: 14px;
+}
+
+.start-menu-place-ico {
+  width: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.95;
+}
+
+.start-menu-place-sep {
+  height: 10px;
+}
+
+.start-menu-bottom {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 78px;
+  background: #353a43;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.start-menu-search {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 0 12px;
+}
+
+.start-menu-search-ico {
+  color: rgba(148, 163, 184, 0.95);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.start-menu-search-input {
+  width: 100%;
+  background: transparent;
+  border: 0;
+  outline: none;
+  color: rgba(226, 232, 240, 1);
+  font-size: 14px;
+}
+
+.start-menu-bottom-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-right: 2px;
+}
+
+.start-menu-circle-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(226, 232, 240, 1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.start-menu-circle-btn:hover {
+  background: rgba(0, 0, 0, 0.28);
+  border-color: rgba(45, 212, 191, 0.35);
+}
+
+.desktop-ctx-menu {
+  position: fixed;
+  z-index: 250;
+  width: 240px;
+  background: #2f343f;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+
+.desktop-ctx-item {
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: rgba(226, 232, 240, 1);
+  font-size: 14px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.desktop-ctx-item:hover {
+  background: rgba(148, 163, 184, 0.14);
+}
+
+.desktop-ctx-ico {
+  width: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.95;
+}
+
+.desktop-icons-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  pointer-events: auto;
+}
+
+.desktop-folder-icon {
+  width: 140px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  position: absolute;
+  cursor: grab;
+  user-select: none;
+}
+
+.desktop-folder-ico {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.desktop-folder-name {
+  font-size: 13px;
+  color: rgba(226, 232, 240, 0.95);
+  text-align: center;
+  max-width: 140px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.game-toasts {
+  position: fixed;
+  right: 18px;
+  top: 72px;
+  z-index: 500;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.game-toast {
+  pointer-events: none;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  backdrop-filter: blur(10px);
+  color: rgba(226, 232, 240, 1);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 13px;
+  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.55);
+  max-width: 320px;
+}
+
+/* Code editor: syntax highlight overlay */
+.code-editor-highlight-wrap {
+  position: relative;
+  flex: 1;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+}
+
+.code-editor-highlight-pre {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 14px 14px;
+  overflow: auto;
+  white-space: pre;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(226, 232, 240, 0.95);
+  pointer-events: none;
+}
+
+.code-editor-textarea {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 14px 14px;
+  width: 100%;
+  height: 100%;
+  resize: none;
+  overflow: auto;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: transparent; /* text hidden; caret stays visible */
+  caret-color: rgba(45, 212, 191, 1);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  tab-size: 2;
+}
+
+/* HackScript token colors */
+.hs-kw {
+  color: rgba(45, 212, 191, 1);
+  font-weight: 600;
+}
+
+.hs-string {
+  color: rgba(251, 191, 36, 1);
+}
+
+.hs-comment {
+  color: rgba(148, 163, 184, 0.95);
+  font-style: italic;
+}
+
+.hs-num {
+  color: rgba(99, 102, 241, 1);
+}
+
+.settings-window {
+  backdrop-filter: blur(10px);
+}
+
+.settings-titlebar {
+  user-select: none;
+}
+
+.settings-bullet {
+  opacity: 0.95;
+}
+
+.settings-body {
+  background: #0d1117;
+}
+
+.settings-tabs {
+  flex: 0 0 auto;
+}
+
+.settings-tab-btn {
+  background: transparent;
+  border: 0;
+  color: rgba(226, 232, 240, 1);
+}
+
+.settings-row {
+}
+
+.resize-handle {
+  position: absolute;
+  z-index: 80;
+  background: transparent;
+}
+
+.resize-handle--n,
+.resize-handle--s {
+  left: 6px;
+  right: 6px;
+  height: 6px;
+}
+.resize-handle--n {
+  top: 0;
+  cursor: ns-resize;
+}
+.resize-handle--s {
+  bottom: 0;
+  cursor: ns-resize;
+}
+
+.resize-handle--e,
+.resize-handle--w {
+  top: 6px;
+  bottom: 6px;
+  width: 6px;
+}
+.resize-handle--e {
+  right: 0;
+  cursor: ew-resize;
+}
+.resize-handle--w {
+  left: 0;
+  cursor: ew-resize;
+}
+
+.resize-handle--ne,
+.resize-handle--nw,
+.resize-handle--se,
+.resize-handle--sw {
+  width: 10px;
+  height: 10px;
+}
+
+.resize-handle--nw {
+  top: 0;
+  left: 0;
+  cursor: nwse-resize;
+}
+.resize-handle--ne {
+  top: 0;
+  right: 0;
+  cursor: nesw-resize;
+}
+.resize-handle--sw {
+  bottom: 0;
+  left: 0;
+  cursor: nesw-resize;
+}
+.resize-handle--se {
+  bottom: 0;
+  right: 0;
+  cursor: nwse-resize;
+}
+
+@keyframes boot-cursor-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.boot-cursor {
+  animation: boot-cursor-blink 1s step-end infinite;
+}
+
