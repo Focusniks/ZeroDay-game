@@ -1,9 +1,8 @@
-import { hash, compare } from "bcryptjs";
 import { NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
-import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
+const backendBaseUrl = process.env.BACKEND_HTTP_URL ?? "http://127.0.0.1:8000";
 
 export async function POST(req: Request) {
   try {
@@ -32,26 +31,27 @@ export async function POST(req: Request) {
       secret: process.env.NEXTAUTH_SECRET,
     });
 
-    const userId = token?.id;
-    if (!userId) {
+    const accessToken = (token as any)?.accessToken as string | undefined;
+    if (!accessToken) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const user = await prisma.user.findUnique({ where: { id: String(userId) } });
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const ok = await compare(currentPassword, user.passwordHash);
-    if (!ok) {
-      return NextResponse.json({ error: "Current password is incorrect" }, { status: 400 });
-    }
-
-    const passwordHash = await hash(newPassword, 10);
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { passwordHash },
+    const response = await fetch(`${backendBaseUrl}/auth/change-password`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        current_password: currentPassword,
+        new_password: newPassword,
+      }),
     });
+
+    const data = (await response.json()) as { ok?: boolean; error?: string };
+    if (!response.ok || !data?.ok) {
+      return NextResponse.json({ error: data?.error ?? "Password update failed" }, { status: response.status });
+    }
 
     return NextResponse.json({ ok: true });
   } catch {

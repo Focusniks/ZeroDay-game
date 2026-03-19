@@ -12,6 +12,7 @@ name = "zeroday-backend"
 path = "src/main.rs"
 
 [dependencies]
+actix-cors = "0.7"
 actix-web = "4"
 anyhow = "1"
 bcrypt = "0.16"
