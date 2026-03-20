@@ -3,13 +3,13 @@ use actix_web::{middleware::Logger, web, App, HttpRequest, HttpResponse, HttpSer
 use dotenvy::dotenv;
 use log::info;
 use serde::{Deserialize, Serialize};
-use sqlx::migrate::Migrator;
 use sqlx::{Postgres, QueryBuilder};
 use sqlx::PgPool;
 use std::env;
 use std::path::Path;
 use uuid::Uuid;
-use zeroday_backend::{auth, browser, db, websocket, fs_online};
+use zeroday_backend::{auth, browser, db, websocket, fs_online, sites, messenger};
+use zeroday_backend::auth::User as AuthUser;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -1060,6 +1060,552 @@ async fn update_settings(
     browser::update_settings(&state.pool, user_uuid, payload.into_inner()).await
 }
 
+// Sites API handlers
+async fn get_sites_list() -> impl Responder {
+    let sites = sites::get_all_sites();
+    HttpResponse::Ok().json(serde_json::json!({
+        "ok": true,
+        "sites": sites
+    }))
+}
+
+async fn create_site_http(payload: web::Json<CreateSitePayload>) -> impl Responder {
+    let name = payload.name.trim().to_lowercase();
+    
+    if name.is_empty() || name.len() > 50 {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "ok": false,
+            "error": "Invalid site name"
+        }));
+    }
+    
+    match sites::create_site(&name) {
+        Ok(site) => HttpResponse::Ok().json(serde_json::json!({
+            "ok": true,
+            "site": site
+        })),
+        Err(e) => HttpResponse::BadRequest().json(serde_json::json!({
+            "ok": false,
+            "error": e.to_string()
+        })),
+    }
+}
+
+async fn delete_site_http(site_name: web::Path<String>) -> impl Responder {
+    let name = site_name.trim().to_lowercase();
+    
+    match sites::delete_site(&name) {
+        Ok(()) => HttpResponse::Ok().json(serde_json::json!({
+            "ok": true
+        })),
+        Err(e) => HttpResponse::BadRequest().json(serde_json::json!({
+            "ok": false,
+            "error": e.to_string()
+        })),
+    }
+}
+
+async fn list_site_files_http(site_name: web::Path<String>) -> impl Responder {
+    let name = site_name.trim().to_lowercase();
+    
+    match sites::list_site_files(&name) {
+        Ok(files) => HttpResponse::Ok().json(serde_json::json!({
+            "ok": true,
+            "files": files
+        })),
+        Err(e) => HttpResponse::NotFound().json(serde_json::json!({
+            "ok": false,
+            "error": e.to_string()
+        })),
+    }
+}
+
+async fn get_site_file_http(
+    site_name: web::Path<(String, String)>,
+) -> impl Responder {
+    let (name, file_path) = site_name.into_inner();
+    let name = name.trim().to_lowercase();
+    
+    match sites::get_site_file(&name, &file_path) {
+        Some(content) => {
+            let mime = mime_guess::from_path(&file_path).first_or_octet_stream();
+            HttpResponse::Ok()
+                .content_type(mime.to_string())
+                .body(content)
+        },
+        None => HttpResponse::NotFound().finish(),
+    }
+}
+
+async fn upload_site_file_http(
+    site_name: web::Path<String>,
+    payload: web::Bytes,
+) -> impl Responder {
+    let name = site_name.trim().to_lowercase();
+    
+    // Для простоты сохраняем как index.html
+    // В будущем можно парсить multipart для загрузки с именем файла
+    match sites::upload_site_file(&name, "uploaded_file.bin", &payload) {
+        Ok(()) => HttpResponse::Ok().json(serde_json::json!({
+            "ok": true
+        })),
+        Err(e) => HttpResponse::BadRequest().json(serde_json::json!({
+            "ok": false,
+            "error": e.to_string()
+        })),
+    }
+}
+
+async fn delete_site_file_http(
+    site_name: web::Path<(String, String)>,
+) -> impl Responder {
+    let (name, file_path) = site_name.into_inner();
+    let name = name.trim().to_lowercase();
+    
+    match sites::delete_site_file(&name, &file_path) {
+        Ok(()) => HttpResponse::Ok().json(serde_json::json!({
+            "ok": true
+        })),
+        Err(e) => HttpResponse::NotFound().json(serde_json::json!({
+            "ok": false,
+            "error": e.to_string()
+        })),
+    }
+}
+
+#[derive(Deserialize)]
+struct CreateSitePayload {
+    name: String,
+}
+
+// ==================== Messenger HTTP API handlers ====================
+
+async fn get_messenger_profile_http(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+) -> impl Responder {
+    let user_id = match user_id_from_request(&req, &state.jwt_secret) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::Unauthorized().json(serde_json::json!({
+            "ok": false, "error": "Unauthorized"
+        }))
+    };
+    
+    match messenger::get_messenger_profile(&state.pool, &user_id).await {
+        Ok(Some(profile)) => HttpResponse::Ok().json(serde_json::json!({
+            "ok": true,
+            "profile": profile
+        })),
+        Ok(None) => HttpResponse::NotFound().json(serde_json::json!({
+            "ok": false,
+            "error": "Profile not found"
+        })),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
+            "ok": false,
+            "error": e.to_string()
+        })),
+    }
+}
+
+async fn setup_messenger_profile_http(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    payload: web::Json<SetupProfilePayload>,
+) -> impl Responder {
+    let user_id = match user_id_from_request(&req, &state.jwt_secret) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::Unauthorized().json(serde_json::json!({
+            "ok": false, "error": "Unauthorized"
+        }))
+    };
+    
+    match messenger::setup_messenger_profile(
+        &state.pool,
+        &user_id,
+        &payload.messenger_id,
+        &payload.display_name,
+        payload.about.as_deref(),
+    ).await {
+        Ok(profile) => HttpResponse::Ok().json(serde_json::json!({
+            "ok": true,
+            "profile": profile
+        })),
+        Err(e) => HttpResponse::BadRequest().json(serde_json::json!({
+            "ok": false,
+            "error": e.to_string()
+        })),
+    }
+}
+
+async fn update_messenger_profile_http(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    payload: web::Json<UpdateProfilePayload>,
+) -> impl Responder {
+    let user_id = match user_id_from_request(&req, &state.jwt_secret) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::Unauthorized().json(serde_json::json!({
+            "ok": false, "error": "Unauthorized"
+        }))
+    };
+    
+    match messenger::update_messenger_profile(
+        &state.pool,
+        &user_id,
+        payload.display_name.as_deref(),
+        payload.avatar_url.as_deref(),
+        payload.about.as_deref(),
+    ).await {
+        Ok(profile) => HttpResponse::Ok().json(serde_json::json!({
+            "ok": true,
+            "profile": profile
+        })),
+        Err(e) => HttpResponse::BadRequest().json(serde_json::json!({
+            "ok": false,
+            "error": e.to_string()
+        })),
+    }
+}
+
+async fn search_users_http(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    query: web::Query<SearchUsersQuery>,
+) -> impl Responder {
+    let user_id = match user_id_from_request(&req, &state.jwt_secret) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::Unauthorized().json(serde_json::json!({
+            "ok": false, "error": "Unauthorized"
+        }))
+    };
+    
+    match messenger::search_users(&state.pool, &query.q, &user_id).await {
+        Ok(users) => HttpResponse::Ok().json(serde_json::json!({
+            "ok": true,
+            "users": users
+        })),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
+            "ok": false,
+            "error": e.to_string()
+        })),
+    }
+}
+
+async fn send_friend_request_http(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    payload: web::Json<SendFriendRequestPayload>,
+) -> impl Responder {
+    let user_id = match user_id_from_request(&req, &state.jwt_secret) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::Unauthorized().json(serde_json::json!({
+            "ok": false, "error": "Unauthorized"
+        }))
+    };
+    
+    match messenger::send_friend_request(&state.pool, &user_id, &payload.receiver_messenger_id).await {
+        Ok(request) => HttpResponse::Ok().json(serde_json::json!({
+            "ok": true,
+            "request": request
+        })),
+        Err(e) => HttpResponse::BadRequest().json(serde_json::json!({
+            "ok": false,
+            "error": e.to_string()
+        })),
+    }
+}
+
+async fn get_friend_requests_http(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+) -> impl Responder {
+    let user_id = match user_id_from_request(&req, &state.jwt_secret) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::Unauthorized().json(serde_json::json!({
+            "ok": false, "error": "Unauthorized"
+        }))
+    };
+    
+    match messenger::get_incoming_friend_requests(&state.pool, &user_id).await {
+        Ok(requests) => HttpResponse::Ok().json(serde_json::json!({
+            "ok": true,
+            "requests": requests
+        })),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
+            "ok": false,
+            "error": e.to_string()
+        })),
+    }
+}
+
+async fn respond_to_friend_request_http(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    path: web::Path<(String, bool)>,
+) -> impl Responder {
+    let (request_id, accept) = path.into_inner();
+    let user_id = match user_id_from_request(&req, &state.jwt_secret) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::Unauthorized().json(serde_json::json!({
+            "ok": false, "error": "Unauthorized"
+        }))
+    };
+    
+    match messenger::respond_to_friend_request(&state.pool, &user_id, &request_id, accept).await {
+        Ok(()) => HttpResponse::Ok().json(serde_json::json!({
+            "ok": true,
+            "accepted": accept
+        })),
+        Err(e) => HttpResponse::BadRequest().json(serde_json::json!({
+            "ok": false,
+            "error": e.to_string()
+        })),
+    }
+}
+
+async fn get_contacts_http(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+) -> impl Responder {
+    let user_id = match user_id_from_request(&req, &state.jwt_secret) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::Unauthorized().json(serde_json::json!({
+            "ok": false, "error": "Unauthorized"
+        }))
+    };
+    
+    match messenger::get_contacts(&state.pool, &user_id).await {
+        Ok(contacts) => HttpResponse::Ok().json(serde_json::json!({
+            "ok": true,
+            "contacts": contacts
+        })),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
+            "ok": false,
+            "error": e.to_string()
+        })),
+    }
+}
+
+async fn remove_contact_http(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    contact_id: web::Path<String>,
+) -> impl Responder {
+    let user_id = match user_id_from_request(&req, &state.jwt_secret) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::Unauthorized().json(serde_json::json!({
+            "ok": false, "error": "Unauthorized"
+        }))
+    };
+    
+    match messenger::remove_contact(&state.pool, &user_id, &contact_id).await {
+        Ok(()) => HttpResponse::Ok().json(serde_json::json!({
+            "ok": true
+        })),
+        Err(e) => HttpResponse::BadRequest().json(serde_json::json!({
+            "ok": false,
+            "error": e.to_string()
+        })),
+    }
+}
+
+async fn get_conversations_http(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+) -> impl Responder {
+    let user_id = match user_id_from_request(&req, &state.jwt_secret) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::Unauthorized().json(serde_json::json!({
+            "ok": false, "error": "Unauthorized"
+        }))
+    };
+    
+    match messenger::get_user_conversations(&state.pool, &user_id).await {
+        Ok(conversations) => HttpResponse::Ok().json(serde_json::json!({
+            "ok": true,
+            "conversations": conversations
+        })),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
+            "ok": false,
+            "error": e.to_string()
+        })),
+    }
+}
+
+async fn create_conversation_http(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    payload: web::Json<CreateConversationPayload>,
+) -> impl Responder {
+    let user_id = match user_id_from_request(&req, &state.jwt_secret) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::Unauthorized().json(serde_json::json!({
+            "ok": false, "error": "Unauthorized"
+        }))
+    };
+    
+    let user = match messenger::get_messenger_profile(&state.pool, &user_id).await {
+        Ok(Some(p)) => AuthUser {
+            id: p.user_id.to_string(),
+            username: p.display_name,
+            email: String::new(),
+            ip_address: String::new(),
+            level: 1,
+            xp: 0,
+            reputation: 0,
+            disk_capacity_mb: 512,
+        },
+        _ => return HttpResponse::BadRequest().json(serde_json::json!({
+            "ok": false,
+            "error": "Messenger profile not found"
+        }))
+    };
+    
+    match messenger::create_conversation(
+        &state.pool,
+        &user,
+        payload.user_ids.clone(),
+        payload.name.clone(),
+        payload.is_group,
+    ).await {
+        Ok(conversation) => HttpResponse::Ok().json(serde_json::json!({
+            "ok": true,
+            "conversation": conversation
+        })),
+        Err(e) => HttpResponse::BadRequest().json(serde_json::json!({
+            "ok": false,
+            "error": e.to_string()
+        })),
+    }
+}
+
+async fn get_messages_http(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    path: web::Path<String>,
+    query: web::Query<GetMessagesQuery>,
+) -> impl Responder {
+    let conversation_id = path.into_inner();
+    let user_id = match user_id_from_request(&req, &state.jwt_secret) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::Unauthorized().json(serde_json::json!({
+            "ok": false, "error": "Unauthorized"
+        }))
+    };
+    
+    let limit = query.limit.unwrap_or(50);
+    let before = query.before.as_ref()
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|dt| dt.with_timezone(&chrono::Utc));
+    
+    match messenger::get_conversation_messages(&state.pool, &conversation_id, &user_id, limit, before).await {
+        Ok(messages) => HttpResponse::Ok().json(serde_json::json!({
+            "ok": true,
+            "messages": messages,
+            "has_more": messages.len() as i32 >= limit
+        })),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
+            "ok": false,
+            "error": e.to_string()
+        })),
+    }
+}
+
+async fn send_message_http_api(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    conversation_id: web::Path<String>,
+    payload: web::Json<SendMessageApiPayload>,
+) -> impl Responder {
+    let user_id = match user_id_from_request(&req, &state.jwt_secret) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::Unauthorized().json(serde_json::json!({
+            "ok": false, "error": "Unauthorized"
+        }))
+    };
+    
+    let user = match messenger::get_messenger_profile(&state.pool, &user_id).await {
+        Ok(Some(p)) => AuthUser {
+            id: p.user_id.to_string(),
+            username: p.display_name,
+            email: String::new(),
+            ip_address: String::new(),
+            level: 1,
+            xp: 0,
+            reputation: 0,
+            disk_capacity_mb: 512,
+        },
+        _ => return HttpResponse::BadRequest().json(serde_json::json!({
+            "ok": false,
+            "error": "Messenger profile not found"
+        }))
+    };
+    
+    match messenger::send_message(
+        &state.pool,
+        &user,
+        &conversation_id,
+        payload.content.clone(),
+        payload.message_type.clone(),
+        payload.media_url.clone(),
+        payload.reply_to_id.clone(),
+    ).await {
+        Ok(message) => HttpResponse::Ok().json(serde_json::json!({
+            "ok": true,
+            "message": message
+        })),
+        Err(e) => HttpResponse::BadRequest().json(serde_json::json!({
+            "ok": false,
+            "error": e.to_string()
+        })),
+    }
+}
+
+#[derive(Deserialize)]
+struct SetupProfilePayload {
+    messenger_id: String,
+    display_name: String,
+    about: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct UpdateProfilePayload {
+    display_name: Option<String>,
+    avatar_url: Option<String>,
+    about: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct SearchUsersQuery {
+    q: String,
+}
+
+#[derive(Deserialize)]
+struct SendFriendRequestPayload {
+    receiver_messenger_id: String,
+}
+
+#[derive(Deserialize)]
+struct CreateConversationPayload {
+    user_ids: Vec<String>,
+    name: Option<String>,
+    is_group: bool,
+}
+
+#[derive(Deserialize)]
+struct GetMessagesQuery {
+    limit: Option<i32>,
+    before: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct SendMessageApiPayload {
+    content: String,
+    message_type: Option<String>,
+    media_url: Option<String>,
+    reply_to_id: Option<String>,
+}
+
 async fn send_message_http(
     state: web::Data<AppState>,
     req: HttpRequest,
@@ -1178,11 +1724,8 @@ async fn main() -> anyhow::Result<()> {
     let web_origin = env::var("WEB_ORIGIN").unwrap_or_else(|_| "http://localhost:3000".to_string());
 
     let pool = db::create_pool(&database_url).await?;
-    let migrations_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
-    let migrator = Migrator::new(migrations_dir).await?;
-    migrator.run(&pool).await?;
 
-    info!("DB connected and migrations applied");
+    info!("DB connected");
 
     // Создаем глобальное хранилище активных WebSocket подключений
     let connections: websocket::SharedConnections = Arc::new(RwLock::new(std::collections::HashMap::new()));
@@ -1210,9 +1753,6 @@ async fn main() -> anyhow::Result<()> {
             .allowed_origin(&cors_origin)
             .allowed_origin("http://localhost:5173")
             .allowed_origin("http://127.0.0.1:5173")
-            .allowed_origin("http://85.239.35.171:5173")
-            .allowed_origin("http://85.239.35.171")
-            .allowed_origin("https://85.239.35.171")
             .allowed_methods(vec!["GET", "POST", "PUT", "DELETE", "OPTIONS"])
             .allowed_headers(vec![
                 actix_web::http::header::AUTHORIZATION,
@@ -1246,6 +1786,28 @@ async fn main() -> anyhow::Result<()> {
             .route("/api/browser/bookmarks/{bookmark_id}", web::delete().to(delete_bookmark))
             .route("/api/browser/settings", web::get().to(get_settings))
             .route("/api/browser/settings", web::put().to(update_settings))
+            // Sites API (статические файлы сайтов)
+            .route("/api/sites", web::get().to(get_sites_list))
+            .route("/api/sites", web::post().to(create_site_http))
+            .route("/api/sites/{site_name}", web::delete().to(delete_site_http))
+            .route("/api/sites/{site_name}/files", web::get().to(list_site_files_http))
+            .route("/api/sites/{site_name}/files/{file_path:.*}", web::get().to(get_site_file_http))
+            .route("/api/sites/{site_name}/files", web::post().to(upload_site_file_http))
+            .route("/api/sites/{site_name}/files/{file_path:.*}", web::delete().to(delete_site_file_http))
+            // Messenger API (HTTP альтернатива WebSocket)
+            .route("/api/messenger/profile", web::get().to(get_messenger_profile_http))
+            .route("/api/messenger/profile", web::post().to(setup_messenger_profile_http))
+            .route("/api/messenger/profile", web::put().to(update_messenger_profile_http))
+            .route("/api/messenger/search", web::get().to(search_users_http))
+            .route("/api/messenger/friends/requests", web::get().to(get_friend_requests_http))
+            .route("/api/messenger/friends/requests", web::post().to(send_friend_request_http))
+            .route("/api/messenger/friends/requests/{request_id}", web::post().to(respond_to_friend_request_http))
+            .route("/api/messenger/contacts", web::get().to(get_contacts_http))
+            .route("/api/messenger/contacts/{contact_id}", web::delete().to(remove_contact_http))
+            .route("/api/messenger/conversations", web::get().to(get_conversations_http))
+            .route("/api/messenger/conversations", web::post().to(create_conversation_http))
+            .route("/api/messenger/conversations/{conversation_id}/messages", web::get().to(get_messages_http))
+            .route("/api/messenger/conversations/{conversation_id}/messages", web::post().to(send_message_http_api))
             // Online File System API (с JWT аутентификацией)
             .route("/api/fs/list", web::get().to(fs_list_http))
             .route("/api/fs/create", web::post().to(fs_create_http))

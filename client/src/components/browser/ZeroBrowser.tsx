@@ -45,6 +45,62 @@ type Bookmark = {
   position: number;
 };
 
+// Компонент для отображения иконки сайта
+function SiteIcon({ url, alt, size = "md" }: { url?: string | null; alt: string; size?: "sm" | "md" | "lg" | "xl" }) {
+  const sizes = {
+    sm: "w-6 h-6 text-sm",
+    md: "w-8 h-8 text-base",
+    lg: "w-10 h-10 text-lg",
+    xl: "w-12 h-12 text-xl",
+  };
+
+  // Пустая иконка - заглушка
+  if (!url || url.trim() === '') {
+    return <span className={`${sizes[size]} flex items-center justify-center text-2xl`}>🌐</span>;
+  }
+
+  // Если это emoji или простой символ (короткая строка)
+  if (url.length <= 4) {
+    return <span className={`${sizes[size]} flex items-center justify-center text-2xl`}>{url}</span>;
+  }
+
+  // Если это data URL
+  if (url.startsWith('data:')) {
+    return (
+      <img
+        src={url}
+        alt={alt}
+        className={`${sizes[size]} rounded object-cover`}
+        onError={(e) => {
+          (e.target as HTMLImageElement).src = '';
+          (e.target as HTMLImageElement).alt = '🌐';
+        }}
+      />
+    );
+  }
+
+  // Если это путь к иконке (SVG/PNG/ICO)
+  if (url.endsWith('.svg') || url.endsWith('.png') || url.endsWith('.ico') || url.includes('/theme-icons/')) {
+    return (
+      <div className={`${sizes[size]} flex items-center justify-center relative bg-slate-800 rounded-lg overflow-hidden`}>
+        <img
+          src={url}
+          alt={alt}
+          className="w-full h-full object-contain p-1"
+          onError={(e) => {
+            const target = e.target as HTMLImageElement;
+            target.style.display = 'none';
+          }}
+        />
+        <span className="absolute inset-0 flex items-center justify-center text-2xl">🌐</span>
+      </div>
+    );
+  }
+
+  // Заглушка по умолчанию для всего остального
+  return <span className={`${sizes[size]} flex items-center justify-center text-2xl`}>🌐</span>;
+}
+
 type BrowserSettings = {
   homepage_url: string;
   theme: string;
@@ -67,7 +123,7 @@ const SYSTEM_PAGES = [
   { url: "zeroday://bookmarks", title: "Bookmarks" },
   { url: "zeroday://settings", title: "Settings" },
   { url: "zeroday://404", title: "Not Found" },
-  { url: "zeroday://messenger", title: "Messenger" },
+  { url: "zeroday://messenger", title: "Zerogram" },
   { url: "zeroday://crypto", title: "Crypto Wallet" },
   { url: "zeroday://hosting/cloudpro", title: "CloudPro Hosting" },
   { url: "zeroday://hosting/fasthost", title: "FastHost" },
@@ -144,18 +200,18 @@ export function ZeroBrowser({
     const loadData = async () => {
       try {
         const [sitesRes, bookmarksRes, settingsRes] = await Promise.all([
-          fetch("http://85.239.35.171:8000/api/browser/sites"),
-          fetch(`http://85.239.35.171:8000/api/browser/bookmarks`, {
+          fetch("http://127.0.0.1:8000/api/sites"),
+          fetch(`http://127.0.0.1:8000/api/browser/bookmarks`, {
             headers: { "Authorization": `Bearer ${localStorage.getItem("zeroday.token")}` }
           }),
-          fetch(`http://85.239.35.171:8000/api/browser/settings`, {
+          fetch(`http://127.0.0.1:8000/api/browser/settings`, {
             headers: { "Authorization": `Bearer ${localStorage.getItem("zeroday.token")}` }
           })
         ]);
 
         if (sitesRes.ok) {
-          const sitesData = await sitesRes.json();
-          setSites(sitesData);
+          const json = await sitesRes.json();
+          setSites(json.sites || []);
         }
 
         if (bookmarksRes.ok) {
@@ -317,7 +373,7 @@ export function ZeroBrowser({
 
     try {
       const site = sites.find(s => s.url === url);
-      const response = await fetch("http://85.239.35.171:8000/api/browser/bookmarks", {
+      const response = await fetch("http://127.0.0.1:8000/api/browser/bookmarks", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -342,7 +398,7 @@ export function ZeroBrowser({
 
   const removeBookmark = useCallback(async (bookmarkId: string) => {
     try {
-      const response = await fetch(`http://85.239.35.171:8000/api/browser/bookmarks/${bookmarkId}`, {
+      const response = await fetch(`http://127.0.0.1:8000/api/browser/bookmarks/${bookmarkId}`, {
         method: "DELETE",
         headers: {
           "Authorization": `Bearer ${localStorage.getItem("zeroday.token")}`
@@ -360,7 +416,7 @@ export function ZeroBrowser({
 
   const updateSettings = useCallback(async (newSettings: Partial<BrowserSettings>) => {
     try {
-      const response = await fetch("http://85.239.35.171:8000/api/browser/settings", {
+      const response = await fetch("http://127.0.0.1:8000/api/browser/settings", {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -393,12 +449,28 @@ export function ZeroBrowser({
     const urlParams = new URLSearchParams(activeTab?.url.split("?")[1]);
     const query = urlParams.get("q")?.toLowerCase() || "";
     if (!query) return [];
-    
-    return sites.filter(site =>
+
+    // Поиск по сайтам из БД
+    const siteResults = sites.filter(site =>
       site.name.toLowerCase().includes(query) ||
       site.description?.toLowerCase().includes(query) ||
       site.category.toLowerCase().includes(query)
     );
+
+    // Поиск по системным страницам (Zerogram, Crypto и т.д.)
+    const pageResults = SYSTEM_PAGES.filter(page =>
+      page.title.toLowerCase().includes(query) ||
+      page.url.toLowerCase().includes(query)
+    ).map(page => ({
+      id: page.url,
+      name: page.title,
+      url: page.url,
+      description: `Открыть ${page.title}`,
+      icon_url: null,
+      category: "system"
+    }));
+
+    return [...siteResults, ...pageResults];
   }, [activeTab?.url, sites]);
 
   if (minimized) return null;
@@ -453,56 +525,28 @@ export function ZeroBrowser({
             </div>
           </form>
 
-          {/* Quick links */}
-          <div className="grid grid-cols-4 gap-4 mb-8">
-            {sites.filter(s => s.category === "system").map((site) => (
-              <button
-                key={site.id}
-                type="button"
-                onClick={() => handleSiteClick(site.url)}
-                className="flex flex-col items-center gap-3 p-6 rounded-xl bg-[#1a1f29] border border-white/10 hover:border-[#ff7139]/50 transition"
-              >
-                <span className="text-4xl">{site.icon_url || "📄"}</span>
-                <span className="text-sm text-slate-300">{site.name}</span>
-              </button>
-            ))}
-            {/* Messenger */}
-            <button
-              type="button"
-              onClick={() => navigateTo("zeroday://messenger")}
-              className="flex flex-col items-center gap-3 p-6 rounded-xl bg-[#1a1f29] border border-white/10 hover:border-blue-500/50 transition"
-            >
-              <span className="text-4xl">💬</span>
-              <span className="text-sm text-slate-300">Zerogram</span>
-            </button>
-            {/* Crypto Wallet */}
-            <button
-              type="button"
-              onClick={() => navigateTo("zeroday://crypto")}
-              className="flex flex-col items-center gap-3 p-6 rounded-xl bg-[#1a1f29] border border-white/10 hover:border-purple-500/50 transition"
-            >
-              <span className="text-4xl">₿</span>
-              <span className="text-sm text-slate-300">Crypto</span>
-            </button>
-            {/* Hosting */}
-            <button
-              type="button"
-              onClick={() => navigateTo("zeroday://hosting/cloudpro")}
-              className="flex flex-col items-center gap-3 p-6 rounded-xl bg-[#1a1f29] border border-white/10 hover:border-cyan-500/50 transition"
-            >
-              <span className="text-4xl">☁️</span>
-              <span className="text-sm text-slate-300">Hosting</span>
-            </button>
-            {/* ISP */}
-            <button
-              type="button"
-              onClick={() => navigateTo("zeroday://isp/freenet")}
-              className="flex flex-col items-center gap-3 p-6 rounded-xl bg-[#1a1f29] border border-white/10 hover:border-green-500/50 transition"
-            >
-              <span className="text-4xl">📡</span>
-              <span className="text-sm text-slate-300">Internet</span>
-            </button>
-          </div>
+          {/* Quick links - только доступные сайты при наличии подключения */}
+          {isOnline ? (
+            <div className="grid grid-cols-4 gap-4 mb-8">
+              {sites.filter(s => s.category === "system" && s.url !== "zeroday://404").map((site) => (
+                <button
+                  key={site.id}
+                  type="button"
+                  onClick={() => handleSiteClick(site.url)}
+                  className="flex flex-col items-center gap-3 p-6 rounded-xl bg-[#1a1f29] border border-white/10 hover:border-[#ff7139]/50 transition"
+                >
+                  <SiteIcon url={site.icon_url} alt={site.name} size="xl" />
+                  <span className="text-sm text-slate-300">{site.name}</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-12">
+              <div className="text-6xl mb-4">📡</div>
+              <p className="text-slate-400">{lang === "ru" ? "Нет подключения к сети" : "No network connection"}</p>
+              <p className="text-sm text-slate-500 mt-2">{lang === "ru" ? "Проверьте настройки сети" : "Check your network settings"}</p>
+            </div>
+          )}
 
           {/* Bookmarks */}
           {bookmarks.length > 0 && (
@@ -511,17 +555,22 @@ export function ZeroBrowser({
                 {lang === "ru" ? "Закладки" : "Bookmarks"}
               </h2>
               <div className="flex flex-wrap justify-center gap-3">
-                {bookmarks.sort((a, b) => a.position - b.position).map((bookmark) => (
-                  <button
-                    key={bookmark.id}
-                    type="button"
-                    onClick={() => handleSiteClick(bookmark.custom_url || sites.find(s => s.id === bookmark.site_id)?.url || "")}
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#1a1f29] border border-white/10 hover:border-[#ff7139]/50 transition"
-                  >
-                    <span>{bookmark.custom_icon_url || "🔖"}</span>
-                    <span className="text-sm text-slate-300">{bookmark.custom_name || sites.find(s => s.id === bookmark.site_id)?.name}</span>
-                  </button>
-                ))}
+                {bookmarks.sort((a, b) => a.position - b.position).map((bookmark) => {
+                  const site = sites.find(s => s.id === bookmark.site_id);
+                  const iconUrl = bookmark.custom_icon_url || site?.icon_url;
+                  const name = bookmark.custom_name || site?.name || 'Закладка';
+                  return (
+                    <button
+                      key={bookmark.id}
+                      type="button"
+                      onClick={() => handleSiteClick(bookmark.custom_url || site?.url || "")}
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#1a1f29] border border-white/10 hover:border-[#ff7139]/50 transition"
+                    >
+                      <SiteIcon url={iconUrl} alt={name} size="sm" />
+                      <span className="text-sm text-slate-300">{name}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -562,7 +611,7 @@ export function ZeroBrowser({
                   className="w-full text-left p-4 rounded-xl bg-[#1a1f29] border border-white/10 hover:border-[#ff7139]/50 transition"
                 >
                   <div className="flex items-center gap-3 mb-2">
-                    <span className="text-2xl">{site.icon_url || "📄"}</span>
+                    <SiteIcon url={site.icon_url} alt={site.name} size="md" />
                     <div>
                       <h3 className="text-lg font-semibold text-[#ff7139]">{site.name}</h3>
                       <p className="text-xs text-slate-500">{site.url}</p>
@@ -613,7 +662,7 @@ export function ZeroBrowser({
                       onClick={() => handleSiteClick(bookmark.custom_url || site?.url || "")}
                       className="flex items-center gap-3 flex-1 text-left"
                     >
-                      <span className="text-2xl">{bookmark.custom_icon_url || site?.icon_url || "📄"}</span>
+                      <SiteIcon url={bookmark.custom_icon_url || site?.icon_url} alt={bookmark.custom_name || site?.name || 'Закладка'} size="md" />
                       <div>
                         <h3 className="text-white">{bookmark.custom_name || site?.name}</h3>
                         <p className="text-xs text-slate-500">{bookmark.custom_url || site?.url}</p>
@@ -814,8 +863,8 @@ export function ZeroBrowser({
     if (site) {
       return (
         <div className="flex flex-col items-center justify-center h-full">
-          <div className="text-6xl mb-4">{site.icon_url || "🌐"}</div>
-          <h2 className="text-2xl font-bold text-white mb-2">{site.name}</h2>
+          <SiteIcon url={site.icon_url} alt={site.name} size="xl" />
+          <h2 className="text-2xl font-bold text-white mb-2 mt-4">{site.name}</h2>
           <p className="text-slate-400 mb-4">{site.url}</p>
           {site.description && (
             <p className="text-slate-500 text-center max-w-md">{site.description}</p>
@@ -1040,7 +1089,9 @@ export function ZeroBrowser({
                   className="w-full flex items-center gap-3 px-4 py-3 text-left text-sm text-slate-300 hover:bg-white/10 transition"
                   onClick={() => handleSiteClick(site.url)}
                 >
-                  <span className="text-lg">{site.icon_url || "📄"}</span>
+                  <span className="flex items-center justify-center w-6 h-6">
+                    <SiteIcon url={site.icon_url} alt={site.name} size="sm" />
+                  </span>
                   <div>
                     <div className="text-white">{site.name}</div>
                     <div className="text-xs text-slate-500">{site.url}</div>

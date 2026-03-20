@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type ReadyState = "connecting" | "open" | "closed" | "error";
 
-// IP адрес облачного сервера Timeweb
-const DEFAULT_WS_URL = "ws://85.239.35.171:8080";
+// Локальный WebSocket сервер
+const DEFAULT_WS_URL = "ws://127.0.0.1:8080";
 
 export function useWebSocket(url?: string) {
   const wsUrl = url || DEFAULT_WS_URL;

@@ -424,9 +424,13 @@ pub async fn get_user_conversations(
     pool: &PgPool,
     user_id: &str,
 ) -> anyhow::Result<Vec<ConversationWithLastMessage>> {
+    // Парсим user_id из String в Uuid
+    let user_uuid = Uuid::parse_str(user_id)
+        .map_err(|e| anyhow!("Invalid user_id format: {}", e))?;
+
     let conversations = sqlx::query_as::<_, ConversationWithLastMessage>(
         r#"
-        SELECT 
+        SELECT
             c.id,
             c.name,
             c.avatar_url,
@@ -447,7 +451,7 @@ pub async fn get_user_conversations(
         FROM conversations c
         JOIN conversation_members cm ON c.id = cm.conversation_id AND cm.user_id = $1
         LEFT JOIN LATERAL (
-            SELECT 
+            SELECT
                 m.id as last_message_id,
                 m.content as last_message_content,
                 m.sender_id as last_message_sender_id,
@@ -478,7 +482,7 @@ pub async fn get_user_conversations(
         ORDER BY c.updated_at DESC
         "#,
     )
-    .bind(user_id)
+    .bind(user_uuid)
     .fetch_all(pool)
     .await?;
 
@@ -983,21 +987,24 @@ pub async fn get_incoming_friend_requests(
     pool: &PgPool,
     user_id: &str,
 ) -> anyhow::Result<Vec<FriendRequest>> {
+    let user_uuid = Uuid::parse_str(user_id)
+        .map_err(|e| anyhow!("Invalid user_id format: {}", e))?;
+
     let requests = sqlx::query_as::<_, FriendRequest>(
         r#"
-        SELECT 
-            fr.id, fr.sender_user_id, fr.receiver_user_id, fr.status, 
+        SELECT
+            fr.id, fr.sender_user_id, fr.receiver_user_id, fr.status,
             fr.created_at, fr.responded_at,
             mp.display_name as sender_display_name,
             mp.avatar_url as sender_avatar_url,
             mp.messenger_id as sender_messenger_id
         FROM friend_requests fr
         JOIN messenger_profiles mp ON mp.user_id = fr.sender_user_id
-        WHERE fr.receiver_user_id = $1::uuid AND fr.status = 'pending'
+        WHERE fr.receiver_user_id = $1 AND fr.status = 'pending'
         ORDER BY fr.created_at DESC
         "#,
     )
-    .bind(user_id)
+    .bind(user_uuid)
     .fetch_all(pool)
     .await?;
 
@@ -1075,10 +1082,13 @@ pub async fn get_contacts(
     pool: &PgPool,
     user_id: &str,
 ) -> anyhow::Result<Vec<Contact>> {
+    let user_uuid = Uuid::parse_str(user_id)
+        .map_err(|e| anyhow!("Invalid user_id format: {}", e))?;
+
     let contacts = sqlx::query_as::<_, Contact>(
         r#"
-        SELECT 
-            mc.id, mc.owner_user_id, mc.contact_user_id, mc.status, 
+        SELECT
+            mc.id, mc.owner_user_id, mc.contact_user_id, mc.status,
             mc.custom_name, mc.created_at,
             mp.display_name as contact_display_name,
             mp.avatar_url as contact_avatar_url,
@@ -1087,11 +1097,11 @@ pub async fn get_contacts(
             false as is_online
         FROM messenger_contacts mc
         JOIN messenger_profiles mp ON mp.user_id = mc.contact_user_id
-        WHERE mc.owner_user_id = $1::uuid AND mc.status != 'blocked'
+        WHERE mc.owner_user_id = $1 AND mc.status != 'blocked'
         ORDER BY mc.created_at DESC
         "#,
     )
-    .bind(user_id)
+    .bind(user_uuid)
     .fetch_all(pool)
     .await?;
 

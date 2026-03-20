@@ -507,157 +507,251 @@ function FriendRequestItem({ request, onAccept, onDecline }: any) {
 
 // ==================== Модальное окно добавления контакта ====================
 
-function AddContactModal({ onClose, onAdd, profile, foundProfileState, setFoundProfileState }: { 
-  onClose: () => void; 
-  onAdd: (messengerId: string) => void; 
+function AddContactModal({ onClose, onAdd, profile }: {
+  onClose: () => void;
+  onAdd: (messengerId: string) => void;
   profile: MessengerProfile | null;
-  foundProfileState: MessengerProfile | null;
-  setFoundProfileState: (p: MessengerProfile | null) => void;
 }) {
-  const [messengerId, setMessengerId] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<MessengerProfile[]>([]);
+  const [selectedUser, setSelectedUser] = useState<MessengerProfile | null>(null);
   const [loading, setLoading] = useState(false);
-  const [searching, setSearching] = useState(false);
+  const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
-  const { sendJson } = useAuth();
+  const [success, setSuccess] = useState(false);
+  const { sendJson, lastMessage } = useAuth();
 
   // Поиск пользователя при вводе
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (messengerId.trim().length >= 2) {
-        setSearching(true);
-        setFoundProfileState(null);
+      const query = searchQuery.trim();
+      if (query.length >= 2) {
+        setLoading(true);
         setError("");
-        sendJson({ type: "SearchUsers", query: messengerId.trim() });
+        setSearchResults([]);
+        setSelectedUser(null);
+        sendJson({ type: "SearchUsers", query });
       } else {
-        setFoundProfileState(null);
-        setSearching(false);
+        setSearchResults([]);
+        setSelectedUser(null);
+        setLoading(false);
       }
-    }, 500);
+    }, 600);
 
     return () => clearTimeout(timer);
-  }, [messengerId, sendJson, setFoundProfileState]);
+  }, [searchQuery, sendJson]);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  // Обработка результатов поиска через lastMessage
+  useEffect(() => {
+    if (!lastMessage) return;
     
-    if (!messengerId.trim()) {
-      setError("Введите уникальное имя");
-      return;
+    try {
+      const data = JSON.parse(lastMessage);
+      if (data.type === "ProfilesList") {
+        setLoading(false);
+        setSearchResults(data.profiles || []);
+      }
+    } catch {
+      // ignore parse errors
     }
+  }, [lastMessage]);
 
-    if (!foundProfileState) {
-      setError("Пользователь не найден");
-      return;
-    }
-
-    if (foundProfileState.user_id === profile?.user_id) {
+  const handleSelectUser = (user: MessengerProfile) => {
+    if (profile && user.user_id === profile.user_id) {
       setError("Нельзя добавить себя в друзья");
       return;
     }
-
-    setLoading(true);
+    setSelectedUser(user);
     setError("");
-    onAdd(foundProfileState.messenger_id);
-    setLoading(false);
   };
+
+  const handleSendRequest = async () => {
+    if (!selectedUser) return;
+    
+    setSending(true);
+    setError("");
+    
+    try {
+      onAdd(selectedUser.messenger_id);
+      setSuccess(true);
+      setTimeout(() => {
+        onClose();
+      }, 1500);
+    } catch (err) {
+      setError("Не удалось отправить запрос. Попробуйте снова.");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  if (success) {
+    return (
+      <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div className="bg-gradient-to-br from-green-900/90 to-emerald-900/90 rounded-3xl border border-green-700/50 p-8 max-w-sm w-full shadow-2xl text-center">
+          <div className="w-20 h-20 rounded-full bg-green-500 flex items-center justify-center mx-auto mb-4 animate-bounce">
+            <Check className="w-10 h-10 text-white" />
+          </div>
+          <h3 className="text-2xl font-bold text-white mb-2">Готово!</h3>
+          <p className="text-green-100">Запрос в друзья отправлен</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-slate-900 rounded-2xl border border-slate-800 p-6 max-w-md w-full shadow-2xl">
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="text-xl font-bold text-white">Добавить контакт</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
+      <div className="bg-slate-900/95 rounded-3xl border border-slate-700/50 p-0 max-w-lg w-full shadow-2xl overflow-hidden">
+        {/* Header */}
+        <div className="relative bg-gradient-to-r from-blue-600 to-purple-600 p-6">
+          <button 
+            onClick={onClose}
+            className="absolute top-4 right-4 text-white/70 hover:text-white transition-colors"
+          >
             <X className="w-6 h-6" />
           </button>
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center">
+              <UserPlus className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h3 className="text-xl font-bold text-white">Добавить друга</h3>
+              <p className="text-blue-100 text-sm">Найдите человека по имени</p>
+            </div>
+          </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
+        {/* Search */}
+        <div className="p-6">
+          <div className="relative mb-6">
             <label className="block text-sm font-medium text-slate-300 mb-2">
-              Уникальное имя пользователя
+              Поиск по имени
             </label>
             <div className="relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500">@</span>
-              <Input
-                value={messengerId}
-                onChange={(e: any) => {
-                  setMessengerId(e.target.value);
-                  setFoundProfileState(null);
-                }}
-                placeholder="username"
-                className="pl-8"
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Введите имя пользователя..."
+                className="w-full pl-12 pr-4 py-3.5 bg-slate-800/80 border border-slate-700 rounded-xl text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all"
                 autoFocus
               />
-              {searching && (
-                <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                  <span className="w-4 h-4 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></span>
+              {loading && (
+                <div className="absolute right-4 top-1/2 -translate-y-1/2">
+                  <div className="w-5 h-5 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
                 </div>
               )}
             </div>
             <p className="text-xs text-slate-500 mt-2">
-              Введите @username пользователя, которого хотите добавить
+              Введите минимум 2 символа для поиска
             </p>
           </div>
 
-          {/* Найденный профиль */}
-          {foundProfileState && (
-            <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
-              <div className="flex items-center gap-3">
-                <Avatar name={foundProfileState.display_name} url={foundProfileState.avatar_url} size="md" />
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-white truncate">{foundProfileState.display_name}</p>
-                  <p className="text-sm text-slate-400">@{foundProfileState.messenger_id}</p>
-                </div>
-                <Check className="w-5 h-5 text-green-500" />
-              </div>
-              {foundProfileState.about && (
-                <p className="text-sm text-slate-400 mt-3 pt-3 border-t border-slate-700">
-                  {foundProfileState.about}
-                </p>
-              )}
+          {/* Results */}
+          {searchResults.length > 0 && (
+            <div className="space-y-2 mb-4">
+              <p className="text-sm text-slate-400 mb-2">
+                Найдено: {searchResults.length}
+              </p>
+              {searchResults.map((user) => (
+                <button
+                  key={user.id}
+                  onClick={() => handleSelectUser(user)}
+                  className={`w-full flex items-center gap-4 p-4 rounded-xl border transition-all ${
+                    selectedUser?.id === user.id
+                      ? "bg-blue-600/20 border-blue-500"
+                      : "bg-slate-800/50 border-slate-700 hover:border-slate-600"
+                  }`}
+                >
+                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 flex items-center justify-center text-white font-bold text-lg flex-shrink-0">
+                    {user.avatar_url ? (
+                      <img src={user.avatar_url} alt={user.display_name} className="w-full h-full object-cover rounded-full" />
+                    ) : (
+                      user.display_name.charAt(0).toUpperCase()
+                    )}
+                  </div>
+                  <div className="flex-1 text-left min-w-0">
+                    <p className="font-medium text-white truncate">{user.display_name}</p>
+                    <p className="text-sm text-slate-400">@{user.messenger_id}</p>
+                  </div>
+                  {selectedUser?.id === user.id && (
+                    <Check className="w-6 h-6 text-blue-400 flex-shrink-0" />
+                  )}
+                </button>
+              ))}
             </div>
           )}
 
-          {/* Сообщения об ошибках */}
+          {/* No results */}
+          {!loading && searchQuery.trim().length >= 2 && searchResults.length === 0 && (
+            <div className="text-center py-8">
+              <Search className="w-12 h-12 text-slate-600 mx-auto mb-3" />
+              <p className="text-slate-400">Никто не найден</p>
+              <p className="text-sm text-slate-500 mt-1">Проверьте правильность ввода</p>
+            </div>
+          )}
+
+          {/* Error */}
           {error && (
-            <div className={`p-3 rounded-xl text-sm flex items-center gap-2 ${
-              error === "Пользователь не найден" 
-                ? "bg-blue-900/30 border border-blue-800 text-blue-200"
-                : "bg-red-900/40 border border-red-800 text-red-200"
-            }`}>
-              {error === "Пользователь не найден" ? (
-                <Search className="w-4 h-4 flex-shrink-0" />
-              ) : (
-                <X className="w-4 h-4 flex-shrink-0" />
-              )}
-              {error}
+            <div className="bg-red-900/30 border border-red-800/50 rounded-xl p-4 flex items-start gap-3 mb-4">
+              <X className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-red-200">{error}</p>
             </div>
           )}
 
-          <div className="flex gap-3 pt-4">
-            <Button variant="secondary" className="flex-1" onClick={onClose} type="button">
-              Отмена
-            </Button>
-            <Button 
-              variant="primary" 
-              className="flex-1" 
-              disabled={loading || !foundProfileState} 
-              type="submit"
-            >
-              {loading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                  Отправка...
-                </span>
-              ) : (
-                <span className="flex items-center justify-center gap-2">
-                  <UserPlus className="w-4 h-4" />
-                  Отправить запрос
-                </span>
+          {/* Selected user action */}
+          {selectedUser && (
+            <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700 mb-4">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 flex items-center justify-center text-white font-bold">
+                  {selectedUser.avatar_url ? (
+                    <img src={selectedUser.avatar_url} alt={selectedUser.display_name} className="w-full h-full object-cover rounded-full" />
+                  ) : (
+                    selectedUser.display_name.charAt(0).toUpperCase()
+                  )}
+                </div>
+                <div>
+                  <p className="font-medium text-white">{selectedUser.display_name}</p>
+                  <p className="text-sm text-slate-400">@{selectedUser.messenger_id}</p>
+                </div>
+              </div>
+              {selectedUser.about && (
+                <p className="text-sm text-slate-400 italic mb-3">"{selectedUser.about}"</p>
               )}
-            </Button>
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="flex gap-3">
+            <button
+              onClick={onClose}
+              className="flex-1 px-4 py-3 rounded-xl border border-slate-700 text-slate-300 hover:bg-slate-800 transition-colors font-medium"
+            >
+              Отмена
+            </button>
+            <button
+              onClick={handleSendRequest}
+              disabled={!selectedUser || sending}
+              className={`flex-1 px-4 py-3 rounded-xl font-medium transition-all flex items-center justify-center gap-2 ${
+                selectedUser && !sending
+                  ? "bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:shadow-lg hover:shadow-blue-500/30"
+                  : "bg-slate-800 text-slate-500 cursor-not-allowed"
+              }`}
+            >
+              {sending ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                  Отправка...
+                </>
+              ) : (
+                <>
+                  <UserPlus className="w-5 h-5" />
+                  Отправить запрос
+                </>
+              )}
+            </button>
           </div>
-        </form>
+        </div>
       </div>
     </div>
   );
@@ -676,7 +770,6 @@ export function MessengerWeb() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [messageInput, setMessageInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<"chats" | "contacts">("chats");
   const [showMobileChat, setShowMobileChat] = useState(false);
   const [setupError, setSetupError] = useState("");
@@ -684,7 +777,6 @@ export function MessengerWeb() {
   const [showSettings, setShowSettings] = useState(false);
   const [showAddContact, setShowAddContact] = useState(false);
   const [notification, setNotification] = useState<{type: "success" | "error", message: string} | null>(null);
-  const [foundProfileState, setFoundProfileState] = useState<MessengerProfile | null>(null);
   const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -741,24 +833,10 @@ export function MessengerWeb() {
             : conv
         ).sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()));
         break;
-      case "ProfilesList":
-        console.log("Search results:", data.profiles);
-        // Ищем точное совпадение с текущим запросом
-        if (searchQuery && data.profiles.length > 0) {
-          const exactMatch = data.profiles.find(
-            (p: MessengerProfile) => p.messenger_id.toLowerCase() === searchQuery.toLowerCase()
-          );
-          if (exactMatch) {
-            setFoundProfileState(exactMatch);
-          }
-        }
-        setSearchResults(data.profiles);
-        break;
       case "FriendRequestSent":
-        console.log("Friend request sent:", data.request);
         setNotification({
           type: "success",
-          message: `Запрос в друзья отправлен пользователю @${data.request.receiver_user_id}`
+          message: `Запрос в друзья отправлен`
         });
         setTimeout(() => setNotification(null), 3000);
         break;
@@ -778,6 +856,18 @@ export function MessengerWeb() {
         console.error("Messenger error:", data);
         if (data.code === "setup_error") {
           setSetupError(data.message);
+        } else if (data.code === "request_error" || data.code === "send_error") {
+          setNotification({
+            type: "error",
+            message: data.message
+          });
+          setTimeout(() => setNotification(null), 5000);
+        } else {
+          setNotification({
+            type: "error",
+            message: data.message || "Произошла ошибка"
+          });
+          setTimeout(() => setNotification(null), 5000);
         }
         break;
     }
@@ -840,17 +930,10 @@ export function MessengerWeb() {
   // Добавление друга
   const handleAddFriend = (messengerId: string) => {
     sendJson({ type: "SendFriendRequest", receiver_messenger_id: messengerId });
+    // Уведомление будет показано в обработчике FriendRequestSent или Error
   };
 
-  // Поиск пользователей
-  const handleSearchUsers = useCallback((query: string) => {
-    console.log("Searching for:", query);
-    if (query.trim()) {
-      sendJson({ type: "SearchUsers", query: query.trim() });
-    } else {
-      setSearchResults([]);
-    }
-  }, [sendJson]);
+  // Поиск пользователей используется только в AddContactModal
 
   // Ответ на запрос в друзья
   const handleRequestRespond = (requestId: string, accept: boolean) => {
@@ -864,15 +947,8 @@ export function MessengerWeb() {
 
   // Добавление контакта по messenger_id
   const handleAddContact = (messengerId: string) => {
-    console.log("Adding contact:", messengerId);
     sendJson({ type: "SendFriendRequest", receiver_messenger_id: messengerId });
-    setShowAddContact(false);
-    // Показываем уведомление
-    setNotification({
-      type: "success",
-      message: `Запрос в друзья отправлен пользователю @${messengerId}`
-    });
-    setTimeout(() => setNotification(null), 3000);
+    // Уведомление показывается в обработчике FriendRequestSent или Error
   };
 
   // Создание чата с контактом
@@ -914,10 +990,7 @@ export function MessengerWeb() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
             <Input
               value={searchQuery}
-              onChange={(e: any) => {
-                setSearchQuery(e.target.value);
-                handleSearchUsers(e.target.value);
-              }}
+              onChange={(e: any) => setSearchQuery(e.target.value)}
               placeholder="Поиск контактов..."
               className="pl-10"
             />
@@ -1028,31 +1101,6 @@ export function MessengerWeb() {
                   </div>
                 )}
               </div>
-
-              {/* Результаты поиска */}
-              {searchResults.length > 0 && (
-                <div>
-                  <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
-                    Результаты поиска
-                  </h3>
-                  <div className="space-y-2">
-                    {searchResults.map((profile) => (
-                      <div key={profile.id} className="flex items-center justify-between p-3 bg-slate-800/50 rounded-xl">
-                        <div className="flex items-center gap-3">
-                          <Avatar name={profile.display_name} url={profile.avatar_url} size="sm" />
-                          <div>
-                            <div className="font-medium text-slate-100">{profile.display_name}</div>
-                            <div className="text-xs text-slate-500">@{profile.messenger_id}</div>
-                          </div>
-                        </div>
-                        <Button variant="primary" size="sm" onClick={() => handleAddFriend(profile.messenger_id)}>
-                          <UserPlus className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           )}
         </div>
@@ -1212,14 +1260,9 @@ export function MessengerWeb() {
       {/* Модальное окно добавления контакта */}
       {showAddContact && (
         <AddContactModal
-          onClose={() => {
-            setShowAddContact(false);
-            setFoundProfileState(null);
-          }}
+          onClose={() => setShowAddContact(false)}
           onAdd={handleAddContact}
           profile={profile}
-          foundProfileState={foundProfileState}
-          setFoundProfileState={setFoundProfileState}
         />
       )}
 

@@ -57,7 +57,7 @@ export function SettingsApp({
   const { config, patchConfig } = useGameConfig();
   const { user } = useAuth();
 
-  const DEFAULT_WS_URL = "ws://85.239.35.171:8080";
+  const DEFAULT_WS_URL = "ws://127.0.0.1:8080";
   const [wsUrlDraft, setWsUrlDraft] = useState<string>(config.wsUrl ?? DEFAULT_WS_URL);
   useEffect(() => {
     setWsUrlDraft(config.wsUrl ?? DEFAULT_WS_URL);

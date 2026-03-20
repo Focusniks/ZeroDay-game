@@ -21,14 +21,14 @@ const STORAGE_USER_KEY = "zeroday.user";
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-// IP адрес облачного сервера Timeweb
-const DEFAULT_WS_URL = "ws://85.239.35.171:8080";
+// Локальный WebSocket сервер
+const DEFAULT_WS_URL = "ws://127.0.0.1:8080";
 
 function normalizeWsUrl(url: string): string {
   // Windows часто резолвит `localhost` в IPv6 (::1), а backend может слушать только IPv4.
   return url
-    .replace(/^ws:\/\/localhost\b/i, "ws://85.239.35.171")
-    .replace(/^wss:\/\/localhost\b/i, "wss://85.239.35.171");
+    .replace(/^ws:\/\/localhost\b/i, "ws://127.0.0.1")
+    .replace(/^wss:\/\/localhost\b/i, "wss://127.0.0.1");
 }
 
 type PendingAuthRequest = {
