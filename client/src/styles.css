@@ -441,6 +441,14 @@ body.zd-cinema-mode .taskbar {
   background: rgba(248, 113, 113, 0.10);
 }
 
+/* New network popover (NetworkPopover component) */
+.network-popover {
+  position: fixed;
+  right: 8px;
+  bottom: 56px;
+  z-index: 1200;
+}
+
 .taskbar-net-menu {
   position: fixed;
   right: 6px;

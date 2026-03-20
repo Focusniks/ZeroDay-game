@@ -54,8 +54,6 @@ export function AuthProvider({
   const pendingRequestRef = useRef<PendingAuthRequest | null>(null);
   const pendingTimeoutRef = useRef<number | null>(null);
   const didAuthorizeRef = useRef(false);
-  // При регистрации во время мастера установки мы не хотим показывать console-оверлей,
-  // чтобы пользователь успевал прочитать факты и пройти установку.
   const suppressNextSystemLoadingRef = useRef(false);
 
   const clearPendingTimeout = () => {
@@ -226,7 +224,7 @@ export function AuthProvider({
       register,
       logout
     }),
-    [readyState, systemLoading, token, user, wsUrl]
+    [readyState, systemLoading, token, user, wsUrl, login, register, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

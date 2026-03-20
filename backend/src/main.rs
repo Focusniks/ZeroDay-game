@@ -9,7 +9,7 @@ use sqlx::PgPool;
 use std::env;
 use std::path::Path;
 use uuid::Uuid;
-use zeroday_backend::{auth, db, websocket, fs_online};
+use zeroday_backend::{auth, browser, db, websocket, fs_online};
 
 #[derive(Clone)]
 struct AppState {
@@ -959,6 +959,105 @@ async fn fs_write_http(
     fs_online::fs_write_text(pool, &user_id, payload).await
 }
 
+// Browser API handlers
+async fn get_bookmarks(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+) -> HttpResponse {
+    let user_id = match user_id_from_request(&req, &state.jwt_secret) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::Unauthorized().json(serde_json::json!({
+            "error": "Unauthorized"
+        }))
+    };
+    let user_uuid = match Uuid::parse_str(&user_id) {
+        Ok(v) => v,
+        Err(_) => return HttpResponse::BadRequest().json(serde_json::json!({
+            "error": "Invalid user id"
+        }))
+    };
+    browser::get_bookmarks(&state.pool, user_uuid).await
+}
+
+async fn create_bookmark(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    payload: web::Json<browser::CreateBookmarkPayload>,
+) -> HttpResponse {
+    let user_id = match user_id_from_request(&req, &state.jwt_secret) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::Unauthorized().json(serde_json::json!({
+            "error": "Unauthorized"
+        }))
+    };
+    let user_uuid = match Uuid::parse_str(&user_id) {
+        Ok(v) => v,
+        Err(_) => return HttpResponse::BadRequest().json(serde_json::json!({
+            "error": "Invalid user id"
+        }))
+    };
+    browser::create_bookmark(&state.pool, user_uuid, payload.into_inner()).await
+}
+
+async fn delete_bookmark(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    bookmark_id: web::Path<Uuid>,
+) -> HttpResponse {
+    let user_id = match user_id_from_request(&req, &state.jwt_secret) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::Unauthorized().json(serde_json::json!({
+            "error": "Unauthorized"
+        }))
+    };
+    let user_uuid = match Uuid::parse_str(&user_id) {
+        Ok(v) => v,
+        Err(_) => return HttpResponse::BadRequest().json(serde_json::json!({
+            "error": "Invalid user id"
+        }))
+    };
+    browser::delete_bookmark(&state.pool, user_uuid, bookmark_id.into_inner()).await
+}
+
+async fn get_settings(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+) -> HttpResponse {
+    let user_id = match user_id_from_request(&req, &state.jwt_secret) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::Unauthorized().json(serde_json::json!({
+            "error": "Unauthorized"
+        }))
+    };
+    let user_uuid = match Uuid::parse_str(&user_id) {
+        Ok(v) => v,
+        Err(_) => return HttpResponse::BadRequest().json(serde_json::json!({
+            "error": "Invalid user id"
+        }))
+    };
+    browser::get_settings(&state.pool, user_uuid).await
+}
+
+async fn update_settings(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    payload: web::Json<browser::UpdateSettingsPayload>,
+) -> HttpResponse {
+    let user_id = match user_id_from_request(&req, &state.jwt_secret) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::Unauthorized().json(serde_json::json!({
+            "error": "Unauthorized"
+        }))
+    };
+    let user_uuid = match Uuid::parse_str(&user_id) {
+        Ok(v) => v,
+        Err(_) => return HttpResponse::BadRequest().json(serde_json::json!({
+            "error": "Invalid user id"
+        }))
+    };
+    browser::update_settings(&state.pool, user_uuid, payload.into_inner()).await
+}
+
 async fn send_message_http(
     state: web::Data<AppState>,
     req: HttpRequest,
@@ -1125,6 +1224,14 @@ async fn main() -> anyhow::Result<()> {
             .route("/marketplace/lots/{lot_id}/request", web::post().to(request_deal_http))
             .route("/marketplace/lots/{lot_id}/thread", web::get().to(get_thread_http))
             .route("/marketplace/lots/{lot_id}/messages", web::post().to(send_message_http))
+            // Browser API
+            .route("/api/browser/sites", web::get().to(browser::get_sites))
+            .route("/api/browser/search", web::get().to(browser::search_sites))
+            .route("/api/browser/bookmarks", web::get().to(get_bookmarks))
+            .route("/api/browser/bookmarks", web::post().to(create_bookmark))
+            .route("/api/browser/bookmarks/{bookmark_id}", web::delete().to(delete_bookmark))
+            .route("/api/browser/settings", web::get().to(get_settings))
+            .route("/api/browser/settings", web::put().to(update_settings))
             // Online File System API (с JWT аутентификацией)
             .route("/api/fs/list", web::get().to(fs_list_http))
             .route("/api/fs/create", web::post().to(fs_create_http))

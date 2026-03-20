@@ -41,7 +41,8 @@ import { FilesApp } from "../components/files/FilesApp";
 import { NotesApp } from "../components/notes/NotesApp";
 import { CodeEditorApp } from "../components/code/CodeEditorApp";
 import { MediaApp } from "../components/media/MediaApp";
-import { CalculatorApp } from "../components/calculator/CalculatorApp";
+import { ZeroBrowser } from "../components/browser/ZeroBrowser";
+import { NetworkPopover } from "../components/network/NetworkPopover";
 import {
   findUtcMsForZonedDate,
   formatZonedDateShort,
@@ -88,12 +89,12 @@ type SettingsTabArg = "system" | "desktop" | "network" | "profile";
 
 type StartMenuHandlerApi = {
   openTerminal: () => void;
-  openCalculator: () => void;
   openSettings: (tab?: SettingsTabArg) => void;
   openFiles: (path: string) => void;
   openNotes: () => void;
   openScripts: () => void;
   openMedia: () => void;
+  openBrowser: () => void;
 };
 
 export type StartMenuCatalogRow = {
@@ -236,6 +237,19 @@ function buildStartMenuCatalog(lang: GameLanguage, h: StartMenuHandlerApi): {
     ],
     internet: [
       row(
+        "internet-browser",
+        <TaskbarThemeIcon src={themeIconUrl("browser.svg")} alt="" className={smIco} />,
+        "Zero Browser",
+        "Zero Browser",
+        () => h.openBrowser(),
+        "browser",
+        "web",
+        "интернет",
+        "internet",
+        "сеть",
+        "network"
+      ),
+      row(
         "internet-net-settings",
         <TaskbarThemeIcon src={themeIconUrl("settings.svg")} alt="" className={smIco} />,
         "Параметры сети",
@@ -282,18 +296,6 @@ function buildStartMenuCatalog(lang: GameLanguage, h: StartMenuHandlerApi): {
         "folder",
         tRu.dockFiles,
         tEn.dockFiles
-      ),
-      row(
-        "office-calculator",
-        <TaskbarThemeIcon src={themeIconUrl("document.svg")} alt="" className={smIco} />,
-        "Калькулятор",
-        "Calculator",
-        () => h.openCalculator(),
-        "калькулятор",
-        "calculator",
-        "calc",
-        "math",
-        "вычис"
       )
     ],
     sundry: [
@@ -620,7 +622,7 @@ export function DashboardPage() {
   const { user, logout, wsState, wsUrl } = useAuth();
   const { t, lang } = useI18n();
   const navigate = useNavigate();
-  const { config } = useGameConfig();
+  const { config, patchConfig } = useGameConfig();
 
   const [toasts, setToasts] = useState<Array<{ id: string; message: string }>>([]);
   const addToast = useCallback((message: string) => {
@@ -633,9 +635,6 @@ export function DashboardPage() {
 
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [terminalMinimized, setTerminalMinimized] = useState(false);
-
-  const [calculatorOpen, setCalculatorOpen] = useState(false);
-  const [calculatorMinimized, setCalculatorMinimized] = useState(false);
 
   const [startOpen, setStartOpen] = useState(false);
   const startRef = useRef<HTMLDivElement | null>(null);
@@ -709,8 +708,42 @@ export function DashboardPage() {
     ? `url(${customWallpaperDataUrl}) center/cover no-repeat, ${builtinWallpaperBackground}`
     : builtinWallpaperBackground;
 
-  const [netMenuOpen, setNetMenuOpen] = useState(false);
-  const netMenuRef = useRef<HTMLDivElement | null>(null);
+  // Network state
+  const [isNetworkConnected, setIsNetworkConnected] = useState(false);
+  const [isNetworkConnecting, setIsNetworkConnecting] = useState(false);
+  const [networkBandwidth, setNetworkBandwidth] = useState(0);
+  const [networkPopoverOpen, setNetworkPopoverOpen] = useState(false);
+  const networkPopoverRef = useRef<HTMLDivElement | null>(null);
+
+  // Симуляция изменения пропускной способности
+  useEffect(() => {
+    if (!isNetworkConnected) {
+      setNetworkBandwidth(0);
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      setNetworkBandwidth(prev => {
+        const baseBandwidth = 100;
+        const variance = Math.random() * 20 - 10;
+        return Math.max(10, Math.round(baseBandwidth + variance));
+      });
+    }, 2000);
+
+    return () => window.clearInterval(interval);
+  }, [isNetworkConnected]);
+
+  const toggleNetworkConnection = () => {
+    if (isNetworkConnected) {
+      setIsNetworkConnected(false);
+    } else {
+      setIsNetworkConnecting(true);
+      setTimeout(() => {
+        setIsNetworkConnecting(false);
+        setIsNetworkConnected(true);
+      }, 1500);
+    }
+  };
 
   const netIsConnected = wsState === "open";
   const netIsConnecting = wsState === "connecting";
@@ -721,24 +754,68 @@ export function DashboardPage() {
         ? "Нет соединения"
         : "No connection";
 
-  // Keyboard layout indicator
+  // Keyboard layout indicator - отслеживание реальной раскладки клавиатуры ПК
   const [keyboardLayout, setKeyboardLayout] = useState<"RU" | "EN">("EN");
+  const lastLayoutRef = useRef<"RU" | "EN">("EN");
+  const isModifierPressed = useRef(false);
+  const lastToggleTimeRef = useRef(0);
 
   useEffect(() => {
-    const updateLayout = () => {
-      const lang = navigator.language || (navigator as any).userLanguage || "en-US";
-      setKeyboardLayout(lang.toLowerCase().startsWith("ru") ? "RU" : "EN");
-    };
-    updateLayout();
+    // Определяем раскладку по последнему введенному символу
+    const detectLayout = (event: KeyboardEvent) => {
+      const key = event.key;
+      
+      // Обработка Alt+Shift или Shift+Alt для переключения раскладки
+      if ((event.altKey && event.key === "Shift") || (event.shiftKey && event.key === "Alt")) {
+        if (!isModifierPressed.current) {
+          isModifierPressed.current = true;
+          const newLayout = lastLayoutRef.current === "RU" ? "EN" : "RU";
+          lastLayoutRef.current = newLayout;
+          setKeyboardLayout(newLayout);
+          lastToggleTimeRef.current = Date.now();
+        }
+        event.preventDefault();
+        return;
+      }
 
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Detect layout change from Alt+Shift or Ctrl+Shift
-      if ((e.altKey || e.ctrlKey) && e.key === "Shift") {
-        setTimeout(updateLayout, 100);
+      // Не обновляем по символам сразу после переключения (даём 500мс на переход)
+      if (Date.now() - lastToggleTimeRef.current < 500) {
+        return;
+      }
+
+      if (!key || key.length !== 1) return;
+
+      // Проверяем, является ли символ кириллицей
+      const isCyrillic = /[\u0400-\u04FF]/.test(key);
+      const newLayout = isCyrillic ? "RU" : "EN";
+
+      // Обновляем только если раскладка изменилась
+      if (newLayout !== lastLayoutRef.current) {
+        lastLayoutRef.current = newLayout;
+        setKeyboardLayout(newLayout);
       }
     };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (event.key === "Alt" || event.key === "Shift") {
+        isModifierPressed.current = false;
+      }
+    };
+
+    // Слушаем нажатия клавиш для определения раскладки
+    window.addEventListener("keydown", detectLayout);
+    window.addEventListener("keyup", handleKeyUp);
+
+    // Начальная проверка по navigator.language
+    const navLang = navigator.language || (navigator as any).userLanguage || "en-US";
+    const initialLayout = navLang.toLowerCase().startsWith("ru") ? "RU" : "EN";
+    lastLayoutRef.current = initialLayout;
+    setKeyboardLayout(initialLayout);
+
+    return () => {
+      window.removeEventListener("keydown", detectLayout);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
   }, []);
 
   const [desktopMenuOpen, setDesktopMenuOpen] = useState(false);
@@ -756,7 +833,7 @@ export function DashboardPage() {
   };
 
   // Window stacking / focus management (full rewrite: shared mechanics for all app windows).
-  type WindowId = "terminal" | "calculator" | "settings" | "files" | "notes" | "scripts" | "media";
+  type WindowId = "terminal" | "settings" | "files" | "notes" | "scripts" | "media" | "browser";
   type WindowBaseState = { id: string; minimized: boolean; z: number };
   const [activeWindowToken, setActiveWindowToken] = useState<string | null>(null);
   const zTopRef = useRef(90);
@@ -779,12 +856,6 @@ export function DashboardPage() {
   const focusTerminal = () => {
     setTerminalZ(nextZ());
     setActiveWindowToken(makeWindowToken("terminal", "main"));
-  };
-
-  const [calculatorZ, setCalculatorZ] = useState(92);
-  const focusCalculator = () => {
-    setCalculatorZ(nextZ());
-    setActiveWindowToken(makeWindowToken("calculator", "main"));
   };
 
   type SettingsTab = "system" | "desktop" | "network" | "profile";
@@ -877,6 +948,24 @@ export function DashboardPage() {
     if (activeWindowToken === makeWindowToken("media", id)) setActiveWindowToken(null);
   };
   const focusMediaWindow = (id: string) => focusWindowInList(setMediaWindows, "media", id);
+
+  type BrowserWindowState = WindowBaseState;
+  const [browserWindows, setBrowserWindows] = useState<BrowserWindowState[]>([]);
+  const openBrowser = () => {
+    const z = nextZ();
+    const id = makeWindowId();
+    setBrowserWindows((prev) => [...prev, { id, minimized: false, z }]);
+    setActiveWindowToken(makeWindowToken("browser", id));
+  };
+  const closeBrowserWindow = (id: string) => {
+    setBrowserWindows((prev) => prev.filter((w) => w.id !== id));
+    if (activeWindowToken === makeWindowToken("browser", id)) setActiveWindowToken(null);
+  };
+  const minimizeBrowserWindow = (id: string) => {
+    setBrowserWindows((prev) => prev.map((w) => (w.id === id ? { ...w, minimized: true } : w)));
+    if (activeWindowToken === makeWindowToken("browser", id)) setActiveWindowToken(null);
+  };
+  const focusBrowserWindow = (id: string) => focusWindowInList(setBrowserWindows, "browser", id);
 
   /** Элементы папки `Desktop/` в ФС — иконки на рабочем столе (плюс «Компьютер» и «Корзина»). */
   const [desktopItems, setDesktopItems] = useState<FsEntry[]>([]);
@@ -1434,7 +1523,7 @@ export function DashboardPage() {
       if (Date.now() < suppressTaskbarMenuDocCloseUntilRef.current) return;
       const el = startRef.current;
       const menuEl = desktopMenuRef.current;
-      const netEl = netMenuRef.current;
+      const networkPopoverEl = networkPopoverRef.current;
       const infoEl = desktopInfoRef.current;
       const clockEl = clockMenuRef.current;
       const clockBtnEl = clockBtnRef.current;
@@ -1442,7 +1531,7 @@ export function DashboardPage() {
       const target = e.target;
       const clickedOutsideStart = el ? !(target instanceof Node && el.contains(target)) : true;
       const clickedOutsideMenu = menuEl ? !(target instanceof Node && menuEl.contains(target)) : true;
-      const clickedOutsideNet = netEl ? !(target instanceof Node && netEl.contains(target)) : true;
+      const clickedOutsideNetworkPopover = networkPopoverEl ? !(target instanceof Node && networkPopoverEl.contains(target)) : true;
       const clickedOutsideInfo = infoEl ? !(target instanceof Node && infoEl.contains(target)) : true;
       const clickedOutsideClockMenu = clockEl ? !(target instanceof Node && clockEl.contains(target)) : true;
       const clickedOutsideClockBtn = clockBtnEl ? !(target instanceof Node && clockBtnEl.contains(target)) : true;
@@ -1455,7 +1544,7 @@ export function DashboardPage() {
         setDesktopMenuOpen(false);
         setDesktopMenuItemKeys(null);
       }
-      if (clickedOutsideNet) setNetMenuOpen(false);
+      if (clickedOutsideNetworkPopover) setNetworkPopoverOpen(false);
       if (clickedOutsideInfo) setDesktopInfo(null);
       if (clickedOutsideClock) setClockMenuOpen(false);
       if (clickedOutsideTaskbarMenu) {
@@ -1508,24 +1597,6 @@ export function DashboardPage() {
     if (activeWindowToken === makeWindowToken("terminal", "main")) setActiveWindowToken(null);
   };
 
-  const openCalculator = () => {
-    focusCalculator();
-    setCalculatorOpen(true);
-    setCalculatorMinimized(false);
-  };
-
-  const minimizeCalculator = () => {
-    setCalculatorMinimized(true);
-    setCalculatorOpen(false);
-    if (activeWindowToken === makeWindowToken("calculator", "main")) setActiveWindowToken(null);
-  };
-
-  const closeCalculator = () => {
-    setCalculatorOpen(false);
-    setCalculatorMinimized(false);
-    if (activeWindowToken === makeWindowToken("calculator", "main")) setActiveWindowToken(null);
-  };
-
   type TaskbarWindowEntry = {
     token: string;
     windowType: WindowId;
@@ -1547,12 +1618,12 @@ export function DashboardPage() {
     if (target?.closest(".terminal-window")) return;
     if (target?.closest(".settings-window")) return;
     if (target?.closest(".start-menu-popup")) return;
-    if (target?.closest(".taskbar-net-menu")) return;
+    if (target?.closest(".network-popover")) return;
     if (target?.closest(".desktop-folder-icon")) return;
 
     e.preventDefault();
     e.stopPropagation();
-    setNetMenuOpen(false);
+    setNetworkPopoverOpen(false);
     setStartOpen(false);
     setDesktopMenuPos({ x: e.clientX, y: e.clientY });
     setDesktopMenuItemKeys(null);
@@ -1570,19 +1641,6 @@ export function DashboardPage() {
             title: t.dockTerminal,
             icon: <TaskbarThemeIcon src={themeIconUrl("terminal.svg")} alt="" />,
             minimized: terminalMinimized
-          }
-        ]
-      : []),
-    ...(calculatorOpen || calculatorMinimized
-      ? [
-          {
-            token: makeWindowToken("calculator", "main"),
-            windowType: "calculator" as const,
-            id: "main",
-            label: lang === "ru" ? "Калькулятор" : "Calculator",
-            title: lang === "ru" ? "Калькулятор" : "Calculator",
-            icon: <TaskbarThemeIcon src={themeIconUrl("document.svg")} alt="" />,
-            minimized: calculatorMinimized
           }
         ]
       : []),
@@ -1630,6 +1688,15 @@ export function DashboardPage() {
       title: lang === "ru" ? "Медиа" : "Media",
       icon: <TaskbarThemeIcon src={themeIconUrl("media.svg")} alt="" />,
       minimized: w.minimized
+    })),
+    ...browserWindows.map((w) => ({
+      token: makeWindowToken("browser", w.id),
+      windowType: "browser" as const,
+      id: w.id,
+      label: "Zero Browser",
+      title: "Zero Browser",
+      icon: <TaskbarThemeIcon src={themeIconUrl("browser.svg")} alt="" />,
+      minimized: w.minimized
     }))
   ];
 
@@ -1639,11 +1706,6 @@ export function DashboardPage() {
         setTerminalOpen(true);
         setTerminalMinimized(false);
         focusTerminal();
-        break;
-      case "calculator":
-        setCalculatorOpen(true);
-        setCalculatorMinimized(false);
-        focusCalculator();
         break;
       case "settings":
         focusSettingsWindow(entry.id);
@@ -1660,6 +1722,10 @@ export function DashboardPage() {
       case "media":
         focusMediaWindow(entry.id);
         break;
+      case "browser":
+        setBrowserWindows((prev) => prev.map((w) => w.id === entry.id ? { ...w, minimized: false } : w));
+        focusBrowserWindow(entry.id);
+        break;
     }
   };
 
@@ -1667,9 +1733,6 @@ export function DashboardPage() {
     switch (entry.windowType) {
       case "terminal":
         minimizeTerminal();
-        break;
-      case "calculator":
-        minimizeCalculator();
         break;
       case "settings":
         minimizeSettingsWindow(entry.id);
@@ -1686,6 +1749,9 @@ export function DashboardPage() {
       case "media":
         minimizeMediaWindow(entry.id);
         break;
+      case "browser":
+        minimizeBrowserWindow(entry.id);
+        break;
     }
   };
 
@@ -1693,9 +1759,6 @@ export function DashboardPage() {
     switch (entry.windowType) {
       case "terminal":
         closeTerminal();
-        break;
-      case "calculator":
-        closeCalculator();
         break;
       case "settings":
         closeSettingsWindow(entry.id);
@@ -1711,6 +1774,9 @@ export function DashboardPage() {
         break;
       case "media":
         closeMediaWindow(entry.id);
+        break;
+      case "browser":
+        closeBrowserWindow(entry.id);
         break;
     }
   };
@@ -1735,7 +1801,7 @@ export function DashboardPage() {
     setStartOpen(false);
     setDesktopMenuOpen(false);
     setClockMenuOpen(false);
-    setNetMenuOpen(false);
+    setNetworkPopoverOpen(false);
     setTaskbarMenuPos({ x: clampedX, y: clampedY });
     setTaskbarMenuToken(entry.token);
     setTaskbarMenuOpen(true);
@@ -1755,7 +1821,7 @@ export function DashboardPage() {
     setClockMenuPos({ right, bottom });
     setCalendarView({ year: now.getFullYear(), month: now.getMonth() });
     setClockMenuOpen(true);
-    setNetMenuOpen(false);
+    setNetworkPopoverOpen(false);
     setDesktopMenuOpen(false);
   };
 
@@ -1829,12 +1895,12 @@ export function DashboardPage() {
 
   const startMenuCatalog = buildStartMenuCatalog(lang, {
     openTerminal,
-    openCalculator,
     openSettings,
     openFiles,
     openNotes,
     openScripts,
-    openMedia
+    openMedia,
+    openBrowser
   });
 
   return (
@@ -2076,20 +2142,20 @@ export function DashboardPage() {
             <button
               type="button"
               className={`taskbar-app taskbar-status-btn ${
-                netIsConnected ? "taskbar-net-btn--ok" : netIsConnecting ? "taskbar-net-btn--connecting" : "taskbar-net-btn--bad"
+                isNetworkConnected ? "taskbar-net-btn--ok" : isNetworkConnecting ? "taskbar-net-btn--connecting" : "taskbar-net-btn--bad"
               }`}
-              onClick={() => setNetMenuOpen((v) => !v)}
+              onClick={() => setNetworkPopoverOpen((v) => !v)}
               aria-label={lang === "ru" ? "Интернет" : "Network"}
               title={lang === "ru" ? "Сеть" : "Network"}
             >
-              <WifiIcon ok={netIsConnected} />
+              <WifiIcon ok={isNetworkConnected} />
             </button>
 
             <button
               type="button"
               className="taskbar-app taskbar-status-btn"
               onClick={() => {
-                setNetMenuOpen(false);
+                setNetworkPopoverOpen(false);
                 openSettings();
               }}
               aria-label={t.dockSettings}
@@ -2102,10 +2168,9 @@ export function DashboardPage() {
             <button
               type="button"
               className="taskbar-app taskbar-status-btn"
-              onClick={() => setKeyboardLayout(prev => prev === "RU" ? "EN" : "RU")}
               aria-label={lang === "ru" ? "Раскладка клавиатуры" : "Keyboard layout"}
-              title={lang === "ru" ? "Переключить раскладку" : "Toggle layout"}
-              style={{ minWidth: "48px", fontWeight: 700, fontSize: "11px" }}
+              title={lang === "ru" ? "Текущая раскладка клавиатуры" : "Current keyboard layout"}
+              style={{ minWidth: "48px", fontWeight: 700, fontSize: "11px", cursor: "default" }}
             >
               {keyboardLayout}
             </button>
@@ -2244,71 +2309,26 @@ export function DashboardPage() {
             </div>
           ) : null}
 
-          {netMenuOpen ? (
+          {networkPopoverOpen ? (
             <div
-              ref={netMenuRef}
-              className="taskbar-net-menu linux-network-popover"
+              ref={networkPopoverRef}
+              style={{
+                position: "fixed",
+                right: 8,
+                bottom: 56,
+                zIndex: 1200
+              }}
               role="menu"
               aria-label={lang === "ru" ? "Меню сети" : "Network menu"}
             >
-              <div className="taskbar-net-menu-header">
-                <span className="taskbar-net-menu-title">{lang === "ru" ? "Сеть" : "Network"}</span>
-                <span className={`taskbar-net-menu-pill ${netIsConnected ? "is-ok" : netIsConnecting ? "is-warn" : "is-bad"}`}>
-                  {netStatusText}
-                </span>
-              </div>
-
-              <div className="taskbar-net-menu-url" title={wsUrl}>
-                {wsUrl}
-              </div>
-
-              <div className="taskbar-net-menu-actions">
-                <button
-                  type="button"
-                  className="taskbar-net-menu-item"
-                  onClick={() => addToast(netIsConnected ? (lang === "ru" ? "Соединение активно" : "Connection active") : netStatusText)}
-                  role="menuitem"
-                >
-                  {lang === "ru" ? "Проверить" : "Check"}
-                </button>
-
-                <button
-                  type="button"
-                  className="taskbar-net-menu-item"
-                  onClick={() => {
-                    setNetMenuOpen(false);
-                    addToast(lang === "ru" ? "Переподключение..." : "Reconnecting...");
-                    window.setTimeout(() => window.location.reload(), 250);
-                  }}
-                  role="menuitem"
-                >
-                  {lang === "ru" ? "Переподключить" : "Reconnect"}
-                </button>
-
-                <button
-                  type="button"
-                  className="taskbar-net-menu-item"
-                  onClick={() => {
-                    setNetMenuOpen(false);
-                    openTerminal();
-                  }}
-                  role="menuitem"
-                >
-                  {lang === "ru" ? "Открыть терминал" : "Open terminal"}
-                </button>
-
-                <button
-                  type="button"
-                  className="taskbar-net-menu-item"
-                  onClick={() => {
-                    setNetMenuOpen(false);
-                    openSettings();
-                  }}
-                  role="menuitem"
-                >
-                  {lang === "ru" ? "Параметры" : "Settings"}
-                </button>
-              </div>
+              <NetworkPopover
+                isConnected={isNetworkConnected}
+                isConnecting={isNetworkConnecting}
+                bandwidth={networkBandwidth}
+                userIpAddress={user?.ip_address || null}
+                onToggleConnection={toggleNetworkConnection}
+                lang={lang}
+              />
             </div>
           ) : null}
 
@@ -2667,7 +2687,7 @@ export function DashboardPage() {
           if (target?.closest(".desktop-folder-icon")) return;
 
           setDesktopMenuOpen(false);
-          setNetMenuOpen(false);
+          setNetworkPopoverOpen(false);
           setStartOpen(false);
 
           setDesktopSelectionRect({
@@ -2864,7 +2884,7 @@ export function DashboardPage() {
                       setDesktopMenuPos({ x: e.clientX, y: e.clientY });
                       setDesktopMenuOpen(true);
                       setStartOpen(false);
-                      setNetMenuOpen(false);
+                      setNetworkPopoverOpen(false);
                     }}
                     onDoubleClick={() => {
                       if (draggingRelPath) return;
@@ -3106,13 +3126,9 @@ export function DashboardPage() {
             minimized={w.minimized}
             onFocus={() => focusScriptsWindow(w.id)}
             zIndex={w.z}
-            onRunInTerminal={(scriptRelPath) => {
-              openTerminal();
-              window.dispatchEvent(
-                new CustomEvent("zeroday:terminal-run", {
-                  detail: { cmd: `hackrun ${scriptRelPath}` }
-                })
-              );
+            onRunScript={(scriptPath, scriptCode) => {
+              // Script execution handled internally by CodeEditorApp
+              console.log(`Script executed: ${scriptPath}`);
             }}
           />
         ))}
@@ -3131,17 +3147,20 @@ export function DashboardPage() {
           />
         ))}
 
-        {/* Calculator app window */}
-        {calculatorOpen || calculatorMinimized ? (
-          <CalculatorApp
+        {/* Browser windows */}
+        {browserWindows.map((w) => (
+          <ZeroBrowser
+            key={w.id}
             lang={lang}
-            onMinimize={minimizeCalculator}
-            onClose={closeCalculator}
-            minimized={calculatorMinimized && !calculatorOpen}
-            onFocus={focusCalculator}
-            zIndex={calculatorZ}
+            onMinimize={() => minimizeBrowserWindow(w.id)}
+            onClose={() => closeBrowserWindow(w.id)}
+            minimized={w.minimized}
+            onFocus={() => focusBrowserWindow(w.id)}
+            zIndex={w.z}
+            isOnline={isNetworkConnected}
+            bandwidth={networkBandwidth}
           />
-        ) : null}
+        ))}
 
         {/* Terminal window */}
         {terminalOpen || terminalMinimized ? (

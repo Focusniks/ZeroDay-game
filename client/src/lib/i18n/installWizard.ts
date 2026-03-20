@@ -99,7 +99,7 @@ const ru: InstallWizardCopy = {
   keyboardEn: "English (US) — интерфейс на английском",
   keyboardRu: "Русская — интерфейс на русском",
   regionTitle: "Часовой пояс",
-  regionHint: "Выбери город или узел на карте — время в установщике будет отображаться для этого пояса.",
+  regionHint: "Выберите часовой пояс из списка ниже.",
   regionSelect: "Список городов и узлов",
   diskTitle: "Разметка диска",
   diskLead:
@@ -207,7 +207,7 @@ const en: InstallWizardCopy = {
   keyboardEn: "English (US) — English UI",
   keyboardRu: "Russian — Russian UI",
   regionTitle: "Time zone",
-  regionHint: "Pick a city or node on the map — the installer clock will use this zone.",
+  regionHint: "Select a time zone from the list below.",
   regionSelect: "Cities and nodes",
   diskTitle: "Disk layout",
   diskLead:

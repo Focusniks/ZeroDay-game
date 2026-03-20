@@ -1162,7 +1162,7 @@ export function FilesApp({
             <div className="nautilus-computer-wrap flex flex-wrap gap-6 p-8">
               <button
                 type="button"
-                className={`nautilus-disk-tile flex w-[200px] flex-col items-center gap-2 rounded-lg border border-black/30 bg-[#333] p-5 text-center shadow-md transition hover:bg-[#3a3a3a] ${
+                className={`nautilus-disk-tile flex w-[200px] flex-col items-center gap-2 rounded-lg border border-black/30 bg-gradient-to-br from-[#0f766e]/40 via-[#1e1b4b]/30 to-[#0c0a09] p-5 text-center shadow-md transition hover:from-[#0f766e]/50 hover:via-[#1e1b4b]/40 ${
                   selectedPaths.includes(DISK0_VIEW) ? "ring-2 ring-[#3584e4]/80" : ""
                 }`}
                 onDoubleClick={() => navigateTo(DISK0_VIEW)}
@@ -1183,7 +1183,7 @@ export function FilesApp({
                 </div>
                 <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-black/40">
                   <div
-                    className="h-full rounded-full bg-[#3584e4]"
+                    className="h-full rounded-full bg-gradient-to-r from-teal-500 to-cyan-500"
                     style={{
                       width:
                         diskUsage && diskUsageState === "ready"
@@ -1196,7 +1196,7 @@ export function FilesApp({
             </div>
           ) : (
             <div
-              className={`p-2 ${dragOverListArea ? "nautilus-drop-target m-1 rounded-lg border-2 border-dashed border-[#3584e4]/70 bg-[#3584e4]/10" : ""}`}
+              className={`p-2 ${dragOverListArea ? "nautilus-drop-target m-1 rounded-lg border-2 border-dashed border-teal-500/70 bg-teal-500/10" : ""}`}
             >
               {viewMode === "grid" ? (
                 <div

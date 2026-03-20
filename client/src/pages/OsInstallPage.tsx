@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { InstallWorldMap } from "../components/install/InstallWorldMap";
 import { getDefaultTimezoneId, INSTALL_TIMEZONES } from "../data/timezones";
 import { useAuth } from "../hooks/useAuth";
 import { useGameConfig } from "../hooks/useGameConfig";
@@ -503,10 +502,6 @@ export function OsInstallPage() {
                 />
               ))}
             </div>
-            <div className="flex items-center justify-between text-xs text-slate-400">
-              <span>{uiLang === "ru" ? "Слайд" : "Slide"} {slideIdx + 1} / {slides.length}</span>
-              <span className="font-mono">{new Date().toLocaleTimeString(uiLang === "ru" ? "ru-RU" : "en-US", { hour: "2-digit", minute: "2-digit" })}</span>
-            </div>
           </div>
         </aside>
 
@@ -600,12 +595,6 @@ export function OsInstallPage() {
                 <div className="space-y-4">
                   <p className="text-white">{copy.regionTitle}</p>
                   <p className="text-sm text-slate-400">{copy.regionHint}</p>
-                  <InstallWorldMap
-                    zones={INSTALL_TIMEZONES}
-                    selectedId={region}
-                    onSelect={setRegion}
-                    lang={uiLang}
-                  />
                   <label className="block text-sm text-slate-400">
                     {copy.regionSelect}
                     <select

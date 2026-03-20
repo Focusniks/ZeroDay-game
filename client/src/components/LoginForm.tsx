@@ -23,11 +23,10 @@ export function LoginForm() {
           : t.connError;
 
   const hint = config.lastLoginEmailHint?.trim();
-  const [identifier, setIdentifier] = useState("");
+  const [identifier, setIdentifier] = useState(hint || "");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [editIdentifier, setEditIdentifier] = useState(false);
 
   const exitApp = () => {
     void (async () => {
@@ -39,13 +38,6 @@ export function LoginForm() {
       }
     })();
   };
-
-  useEffect(() => {
-    if (hint) {
-      setIdentifier((prev) => (prev ? prev : hint));
-      setEditIdentifier(false);
-    }
-  }, [config.lastLoginEmailHint]);
 
   const onSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -96,34 +88,23 @@ export function LoginForm() {
         <div className="min-w-0">
           <div className="text-xs uppercase tracking-[0.22em] text-slate-400">ZeroDay Login</div>
           <div className="truncate text-lg font-semibold text-white">
-            {hint && !editIdentifier ? identifier : identifier ? identifier : "Select user"}
+            {identifier ? identifier : "Enter your login"}
           </div>
-          {hint && !editIdentifier ? (
-            <button
-              type="button"
-              onClick={() => setEditIdentifier(true)}
-              className="mt-1 text-xs font-medium text-cyan-300/90 hover:text-cyan-200"
-            >
-              Change user
-            </button>
-          ) : null}
         </div>
       </div>
 
       <form className="space-y-4" onSubmit={onSubmit}>
-        {editIdentifier ? (
-          <div>
-            <label className="mb-1 block text-xs uppercase tracking-wide text-slate-400">{t.loginEmail}</label>
-            <input
-              type="text"
-              className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none focus:border-cyan-500"
-              value={identifier}
-              onChange={(e) => setIdentifier(e.target.value)}
-              autoComplete="username"
-              placeholder="username or you@example.com"
-            />
-          </div>
-        ) : null}
+        <div>
+          <label className="mb-1 block text-xs uppercase tracking-wide text-slate-400">{t.loginEmail}</label>
+          <input
+            type="text"
+            className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none focus:border-cyan-500"
+            value={identifier}
+            onChange={(e) => setIdentifier(e.target.value)}
+            autoComplete="username"
+            placeholder="username or you@example.com"
+          />
+        </div>
 
         <div>
           <label className="mb-1 block text-xs uppercase tracking-wide text-slate-400">{t.loginPassword}</label>
