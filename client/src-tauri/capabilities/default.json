@@ -10,6 +10,7 @@
     "allow-save-game-config",
     "allow-fs-init",
     "allow-fs-root-path",
+    "allow-fs-disk-usage",
     "allow-fs-list",
     "allow-fs-mkdir",
     "allow-fs-delete",

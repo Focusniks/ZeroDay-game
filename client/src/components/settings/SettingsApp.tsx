@@ -12,6 +12,12 @@ import {
 } from "../../lib/wallpapers";
 import { useAuth } from "../../hooks/useAuth";
 import { fileToBase64, initGameFs, listFs, writeBytesBase64Fs, type FsEntry } from "../../lib/gameFs";
+import {
+  playWindowClose,
+  playWindowMaximize,
+  playWindowMinimize,
+  playWindowRestore
+} from "../../lib/osSounds";
 import { useWindowFrame } from "../window/useWindowFrame";
 
 type Props = {
@@ -107,6 +113,8 @@ export function SettingsApp({
 
   const [resizingTick, setResizingTick] = useState(0);
   const onToggleMaximize = () => {
+    if (maximized) playWindowRestore();
+    else playWindowMaximize();
     toggleMaximize();
     setMaximizedTick((v) => v + 1);
   };
@@ -138,14 +146,20 @@ export function SettingsApp({
             aria-label="close"
             className="h-3 w-3 rounded-full bg-[#ff5f57] hover:opacity-90"
             onMouseDown={(e) => e.stopPropagation()}
-            onClick={onClose}
+            onClick={() => {
+              playWindowClose();
+              onClose();
+            }}
           />
           <button
             type="button"
             aria-label="minimize"
             className="h-3 w-3 rounded-full bg-[#febc2e] hover:opacity-90"
             onMouseDown={(e) => e.stopPropagation()}
-            onClick={onMinimize}
+            onClick={() => {
+              playWindowMinimize();
+              onMinimize();
+            }}
           />
           <button
             type="button"

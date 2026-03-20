@@ -1,6 +1,8 @@
 mod game_config;
 mod fs_game;
 
+/// Every command here needs a matching ACL entry:
+/// `permissions/game-config.toml` + `capabilities/default.json`.
 pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![

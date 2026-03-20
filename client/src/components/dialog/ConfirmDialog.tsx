@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { useEffect, useRef } from "react";
+import { playDialogDanger, playDialogQuestion } from "../../lib/osSounds";
 
 type Props = {
   open: boolean;
@@ -28,6 +29,12 @@ export function ConfirmDialog({
     if (!open) return;
     cancelBtnRef.current?.focus();
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (danger) playDialogDanger();
+    else playDialogQuestion();
+  }, [open, danger]);
 
   if (!open) return null;
 

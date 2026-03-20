@@ -190,6 +190,17 @@ function CustomVideoPlayer({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [cinemaMode, duration]);
 
+  useEffect(() => {
+    if (cinemaMode) {
+      document.body.classList.add("zd-cinema-mode");
+    } else {
+      document.body.classList.remove("zd-cinema-mode");
+    }
+    return () => {
+      document.body.classList.remove("zd-cinema-mode");
+    };
+  }, [cinemaMode]);
+
   const onTogglePlay = () => {
     const v = videoRef.current;
     if (!v) return;
@@ -260,9 +271,9 @@ function CustomVideoPlayer({
     window.addEventListener("pointerup", onUp);
   };
 
-  const content = (
+  const playerContent = (
     <div
-      className="relative h-full w-full overflow-hidden bg-black"
+      className="relative h-full w-full overflow-hidden rounded-lg border border-white/10 bg-black"
       onContextMenu={(e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -275,135 +286,176 @@ function CustomVideoPlayer({
       role="application"
       aria-label={lang === "ru" ? "Плеер видео" : "Video player"}
     >
-      <video
-        ref={videoRef}
-        className="h-full w-full object-contain"
-        src={src}
-        playsInline
-        // Без нативных controls: всё через RMB-меню и таймлайн
-        controls={false}
-      />
+        <video
+          ref={videoRef}
+          className="h-full w-full object-contain"
+          src={src}
+          playsInline
+          // Без нативных controls: всё через RMB-меню и таймлайн
+          controls={false}
+        />
 
-      <div className="absolute left-0 right-0 bottom-0 p-3">
-        <div className="rounded-lg border border-white/10 bg-black/45 backdrop-blur px-3 py-2">
-          <div className="flex items-center gap-3">
-            <div className="text-xs font-bold text-white/90 whitespace-nowrap">
-              {formatTime(currentTime)} / {formatTime(duration)}
+        <div className="absolute left-0 right-0 bottom-0 p-3">
+          <div className="rounded-lg border border-white/10 bg-black/55 backdrop-blur px-3 py-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-shrink-0 items-center gap-1">
+                <button
+                  type="button"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/15 bg-white/5 text-white/90 transition hover:bg-white/10"
+                  onClick={onTogglePlay}
+                  aria-label={playing ? t.pause : t.play}
+                  title={playing ? t.pause : t.play}
+                >
+                  {playing ? <PauseIcon size={16} /> : <PlayIcon size={16} />}
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/15 bg-white/5 text-white/90 transition hover:bg-white/10"
+                  onClick={() => onSeek(currentTime - 10)}
+                  aria-label={t.seekBack}
+                  title={t.seekBack}
+                >
+                  <SeekBackIcon size={16} />
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/15 bg-white/5 text-white/90 transition hover:bg-white/10"
+                  onClick={() => onSeek(currentTime + 10)}
+                  aria-label={t.seekFwd}
+                  title={t.seekFwd}
+                >
+                  <SeekFwdIcon size={16} />
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/15 bg-white/5 text-white/90 transition hover:bg-white/10"
+                  onClick={() => setCinemaMode((v) => !v)}
+                  aria-label={cinemaMode ? t.exitCinema : t.cinema}
+                  title={cinemaMode ? t.exitCinema : t.cinema}
+                >
+                  {cinemaMode ? <CloseIcon size={16} /> : <CinemaIcon size={16} />}
+                </button>
+              </div>
+
+              <div className="min-w-[92px] text-xs font-bold text-white/90 whitespace-nowrap">
+                {formatTime(currentTime)} / {formatTime(duration)}
+              </div>
+
+              <div className="ml-auto text-[11px] font-bold text-white/60 whitespace-nowrap">{t.hint}</div>
             </div>
 
-            <div className="ml-auto text-[11px] font-bold text-white/60 whitespace-nowrap">{t.hint}</div>
+            <div
+              ref={progressRef}
+              className="mt-2 h-2 w-full cursor-ew-resize rounded-full bg-white/10 overflow-hidden"
+              onPointerDown={onProgressPointerDown}
+              role="slider"
+              aria-label={lang === "ru" ? "Прогресс" : "Progress"}
+              aria-valuemin={0}
+              aria-valuemax={duration || 0}
+              aria-valuenow={currentTime}
+            >
+              <div
+                className="h-full bg-[#2dd4bf]"
+                style={{
+                  width: duration > 0 ? `${(Math.min(currentTime, duration) / duration) * 100}%` : "0%"
+                }}
+              />
+            </div>
           </div>
+        </div>
 
+        {menuOpen ? (
           <div
-            ref={progressRef}
-            className="mt-2 h-2 w-full cursor-ew-resize rounded-full bg-white/10 overflow-hidden"
-            onPointerDown={onProgressPointerDown}
-            role="slider"
-            aria-label={lang === "ru" ? "Прогресс" : "Progress"}
-            aria-valuemin={0}
-            aria-valuemax={duration || 0}
-            aria-valuenow={currentTime}
+            ref={menuRef}
+            className="desktop-ctx-menu"
+            style={{
+              left: menuPos.x,
+              top: menuPos.y
+            }}
+            role="menu"
+            aria-label={lang === "ru" ? "Меню видео" : "Video menu"}
           >
             <div
-              className="h-full bg-[#2dd4bf]"
-              style={{
-                width: duration > 0 ? `${(Math.min(currentTime, duration) / duration) * 100}%` : "0%"
+              className="desktop-ctx-item"
+              role="menuitem"
+              onClick={() => {
+                setMenuOpen(false);
+                onTogglePlay();
               }}
-            />
-          </div>
-        </div>
-      </div>
+            >
+              <span className="desktop-ctx-ico" aria-hidden="true">
+                {playing ? <PauseIcon /> : <PlayIcon />}
+              </span>
+              <span>{playing ? t.pause : t.play}</span>
+            </div>
 
-      {menuOpen ? (
-        <div
-          ref={menuRef}
-          className="desktop-ctx-menu"
-          style={{
-            left: menuPos.x,
-            top: menuPos.y
-          }}
-          role="menu"
-          aria-label={lang === "ru" ? "Меню видео" : "Video menu"}
-        >
-          <div
-            className="desktop-ctx-item"
-            role="menuitem"
-            onClick={() => {
-              setMenuOpen(false);
-              onTogglePlay();
-            }}
-          >
-            <span className="desktop-ctx-ico" aria-hidden="true">
-              {playing ? <PauseIcon /> : <PlayIcon />}
-            </span>
-            <span>{playing ? t.pause : t.play}</span>
-          </div>
+            <div
+              className="desktop-ctx-item"
+              role="menuitem"
+              onClick={() => {
+                setMenuOpen(false);
+                onSeek(currentTime - 10);
+              }}
+            >
+              <span className="desktop-ctx-ico" aria-hidden="true">
+                <SeekBackIcon />
+              </span>
+              <span>{t.seekBack}</span>
+            </div>
 
-          <div
-            className="desktop-ctx-item"
-            role="menuitem"
-            onClick={() => {
-              setMenuOpen(false);
-              onSeek(currentTime - 10);
-            }}
-          >
-            <span className="desktop-ctx-ico" aria-hidden="true">
-              <SeekBackIcon />
-            </span>
-            <span>{t.seekBack}</span>
-          </div>
+            <div
+              className="desktop-ctx-item"
+              role="menuitem"
+              onClick={() => {
+                setMenuOpen(false);
+                onSeek(currentTime + 10);
+              }}
+            >
+              <span className="desktop-ctx-ico" aria-hidden="true">
+                <SeekFwdIcon />
+              </span>
+              <span>{t.seekFwd}</span>
+            </div>
 
-          <div
-            className="desktop-ctx-item"
-            role="menuitem"
-            onClick={() => {
-              setMenuOpen(false);
-              onSeek(currentTime + 10);
-            }}
-          >
-            <span className="desktop-ctx-ico" aria-hidden="true">
-              <SeekFwdIcon />
-            </span>
-            <span>{t.seekFwd}</span>
-          </div>
+            <div
+              className="desktop-ctx-item"
+              role="menuitem"
+              onClick={() => {
+                setMenuOpen(false);
+                setCinemaMode(!cinemaMode);
+              }}
+            >
+              <span className="desktop-ctx-ico" aria-hidden="true">
+                {cinemaMode ? <CloseIcon /> : <CinemaIcon />}
+              </span>
+              <span>{cinemaMode ? t.exitCinema : t.cinema}</span>
+            </div>
 
-          <div
-            className="desktop-ctx-item"
-            role="menuitem"
-            onClick={() => {
-              setMenuOpen(false);
-              setCinemaMode(!cinemaMode);
-            }}
-          >
-            <span className="desktop-ctx-ico" aria-hidden="true">
-              {cinemaMode ? <CloseIcon /> : <CinemaIcon />}
-            </span>
-            <span>{cinemaMode ? t.exitCinema : t.cinema}</span>
+            <div
+              className="desktop-ctx-item"
+              role="menuitem"
+              onClick={() => {
+                setMenuOpen(false);
+                onRequestUpload();
+              }}
+            >
+              <span className="desktop-ctx-ico" aria-hidden="true">
+                <span style={{ fontSize: 16, opacity: 0.95 }}>⬆</span>
+              </span>
+              <span>{t.upload}</span>
+            </div>
           </div>
-
-          <div
-            className="desktop-ctx-item"
-            role="menuitem"
-            onClick={() => {
-              setMenuOpen(false);
-              onRequestUpload();
-            }}
-          >
-            <span className="desktop-ctx-ico" aria-hidden="true">
-              <span style={{ fontSize: 16, opacity: 0.95 }}>⬆</span>
-            </span>
-            <span>{t.upload}</span>
-          </div>
-        </div>
-      ) : null}
+        ) : null}
     </div>
   );
 
-  if (!cinemaMode) return <div className="rounded-lg border border-white/10 overflow-hidden">{content}</div>;
-
   return (
-    <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/80" role="dialog" aria-label={t.cinema}>
-      <div className="absolute inset-3">{content}</div>
+    <div
+      className={cinemaMode ? "fixed inset-0 z-[5000] bg-black/80 p-3" : "h-full w-full"}
+      role={cinemaMode ? "dialog" : undefined}
+      aria-label={cinemaMode ? t.cinema : undefined}
+    >
+      {playerContent}
     </div>
   );
 }
@@ -451,6 +503,7 @@ function PhotoViewer({
 
   const draggingRef = useRef(false);
   const dragStartRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
+  const zoomPercent = Math.round(zoom * 100);
 
   return (
     <div
@@ -476,6 +529,8 @@ function PhotoViewer({
         // Panning when zoomed
         if (zoom <= 1.001) return;
         if (e.button !== 0) return;
+        const target = e.target as HTMLElement | null;
+        if (target?.closest(".photo-controls") || target?.closest(".desktop-ctx-menu")) return;
         e.preventDefault();
         e.stopPropagation();
         draggingRef.current = true;
@@ -489,6 +544,10 @@ function PhotoViewer({
         setPan({ x: dragStartRef.current.panX + dx, y: dragStartRef.current.panY + dy });
       }}
       onPointerUp={() => {
+        draggingRef.current = false;
+        dragStartRef.current = null;
+      }}
+      onPointerCancel={() => {
         draggingRef.current = false;
         dragStartRef.current = null;
       }}
@@ -509,6 +568,74 @@ function PhotoViewer({
       </div>
 
       <div className="absolute left-3 top-3 text-[11px] font-bold text-white/50">{menuLabels.hint}</div>
+
+      <div className="photo-controls absolute right-3 top-3 z-10 flex items-center gap-1 rounded-lg border border-white/10 bg-black/45 px-2 py-1.5 backdrop-blur">
+        <button
+          type="button"
+          className="h-8 w-8 rounded-md border border-white/15 bg-white/5 text-white/90 hover:bg-white/10"
+          onClick={() => {
+            const next = Math.min(6, zoom * 1.2);
+            setZoom(next);
+            setPan({ x: 0, y: 0 });
+          }}
+          aria-label={menuLabels.zoomIn}
+          title={menuLabels.zoomIn}
+        >
+          +
+        </button>
+        <button
+          type="button"
+          className="h-8 w-8 rounded-md border border-white/15 bg-white/5 text-white/90 hover:bg-white/10"
+          onClick={() => {
+            const next = Math.max(1, zoom / 1.2);
+            setZoom(next);
+            setPan({ x: 0, y: 0 });
+          }}
+          aria-label={menuLabels.zoomOut}
+          title={menuLabels.zoomOut}
+        >
+          -
+        </button>
+        <button
+          type="button"
+          className="h-8 rounded-md border border-white/15 bg-white/5 px-2 text-xs text-white/90 hover:bg-white/10"
+          onClick={() => {
+            setZoom(1);
+            setPan({ x: 0, y: 0 });
+            setFitCover(false);
+          }}
+          aria-label={menuLabels.reset}
+          title={menuLabels.reset}
+        >
+          {lang === "ru" ? "Сброс" : "Reset"}
+        </button>
+        <button
+          type="button"
+          className="h-8 rounded-md border border-white/15 bg-white/5 px-2 text-xs text-white/90 hover:bg-white/10"
+          onClick={() => {
+            setFitCover((v) => !v);
+            setZoom(1);
+            setPan({ x: 0, y: 0 });
+          }}
+          aria-label={menuLabels.fit}
+          title={menuLabels.fit}
+        >
+          {fitCover ? "Fit" : "Cover"}
+        </button>
+        <button
+          type="button"
+          className="h-8 rounded-md border border-white/15 bg-white/5 px-2 text-xs text-white/90 hover:bg-white/10"
+          onClick={onRequestUpload}
+          aria-label={menuLabels.upload}
+          title={menuLabels.upload}
+        >
+          {lang === "ru" ? "Файл" : "Upload"}
+        </button>
+      </div>
+
+      <div className="absolute left-3 bottom-3 z-10 rounded-md border border-white/10 bg-black/45 px-2 py-1 text-[11px] font-bold text-white/80 backdrop-blur">
+        {zoomPercent}%
+      </div>
 
       {menuOpen ? (
         <div

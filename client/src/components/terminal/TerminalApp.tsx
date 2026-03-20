@@ -2,8 +2,21 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "../../types/auth";
 import type { GameLanguage } from "../../lib/gameConfig";
 import { useI18n } from "../../hooks/useI18n";
-import { initGameFs, listFs, readTextFs, type FsEntry } from "../../lib/gameFs";
+import { initGameFs, listFs, readTextFs, writeTextFs, type FsEntry } from "../../lib/gameFs";
+import { execTerminalFsLine } from "../../lib/terminalCommands";
+import {
+  formatPromptCwd,
+  resolveVirtualPath,
+  shellSplit,
+  splitPathCompletionArg
+} from "../../lib/terminalFs";
 import { runHackScript } from "../../lib/hackScript";
+import {
+  playWindowClose,
+  playWindowMaximize,
+  playWindowMinimize,
+  playWindowRestore
+} from "../../lib/osSounds";
 import { useWindowFrame } from "../window/useWindowFrame";
 
 type Props = {
@@ -22,6 +35,11 @@ type Props = {
 
 function normalizeCommand(cmd: string): string {
   return cmd.trim().replace(/\s+/g, " ");
+}
+
+/** Keep prompt on one line when cwd/user contains spaces (avoid break-words splitting). */
+function nbPath(s: string): string {
+  return s.replace(/ /g, "\u00a0");
 }
 
 export function TerminalApp({
@@ -43,14 +61,16 @@ export function TerminalApp({
   const level = user?.level ?? 1;
   const xp = user?.xp ?? 0;
 
-  const prompt = useMemo(() => `user@${username}:~$`, [username]);
+  const [cwdRel, setCwdRel] = useState("");
+  const cwdRef = useRef("");
+  cwdRef.current = cwdRel;
 
-  const bootBlock = useMemo(() => t.terminalBootBlock(username, ip, level, xp), [t, username, ip, level, xp]);
-  const welcome = useMemo(() => t.terminalWelcomeLine(username), [t, username]);
+  const prompt = useMemo(
+    () => `user@${nbPath(username)}:${nbPath(formatPromptCwd(cwdRel))}$`,
+    [username, cwdRel]
+  );
 
-  const initialLines = useMemo(() => [welcome, bootBlock], [welcome, bootBlock]);
-
-  const [lines, setLines] = useState<string[]>(() => initialLines);
+  const [lines, setLines] = useState<string[]>([]);
   const [cmd, setCmd] = useState("");
   const [history, setHistory] = useState<string[]>([]);
   const [historyIdx, setHistoryIdx] = useState<number | null>(null);
@@ -66,11 +86,12 @@ export function TerminalApp({
   });
 
   useEffect(() => {
-    setLines(initialLines);
+    setLines([]);
     setCmd("");
     setHistory([]);
     setHistoryIdx(null);
-  }, [initialLines]);
+    setCwdRel("");
+  }, [user?.id]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -88,35 +109,27 @@ export function TerminalApp({
     const isRu = lang === "ru";
     if (isRu) {
       return [
-        "Доступные команды:",
-        "  help            — показать справку",
-        "  whoami          — показать пользователя",
-        "  ip              — показать виртуальный IP",
-        "  profile         — показать профиль",
-        "  clear           — очистить терминал",
-        "  exit            — выйти из игры",
-        "  logout          — выйти из аккаунта",
-        "  contracts       — контракты (заглушка)",
-        "  market          — чёрный рынок (заглушка)",
-        "  ctf             — турниры (заглушка)",
-        "  clan            — клан (заглушка)",
-        "  hackrun <file> — запустить HackScript из Scripts/"
+        "Файловая система (относительно текущей папки, как в Linux):",
+        "  pwd, cd [путь], ls [-la] [путь…], tree [-L N] [путь]",
+        "  cat <файл…>, mkdir <папка…>, rmdir <пустая_папка>",
+        "  rm [-rf] <путь…>, mv <откуда> <куда>, cp <файл> <файл>",
+        "  touch <файл…>, df — диск, echo [текст] [>|>> файл]",
+        "  hackrun <скрипт.hack> — HackScript из текущей папки или по пути",
+        "",
+        "Прочее:",
+        "  help, whoami, ip, profile, clear, exit, logout"
       ].join("\n");
     }
     return [
-      "Available commands:",
-      "  help            — show help",
-      "  whoami          — show current user",
-      "  ip              — show virtual IP",
-      "  profile         — show profile",
-      "  clear           — clear terminal",
-      "  exit            — exit game",
-      "  logout          — logout account",
-      "  contracts       — contracts (stub)",
-      "  market          — black market (stub)",
-      "  ctf             — tournaments (stub)",
-      "  clan            — clan (stub)",
-      "  hackrun <file> — run HackScript from Scripts/"
+      "Filesystem (paths relative to current directory, Linux-like):",
+      "  pwd, cd [path], ls [-la] [path…], tree [-L N] [path]",
+      "  cat <file…>, mkdir <dir…>, rmdir <empty_dir>",
+      "  rm [-rf] <path…>, mv <src> <dst>, cp <file> <file>",
+      "  touch <file…>, df — virtual disk, echo [text] [> or >> file]",
+      "  hackrun <script.hack> — HackScript in cwd or by path",
+      "",
+      "Other:",
+      "  help, whoami, ip, profile, clear, exit, logout"
     ].join("\n");
   }, [lang]);
 
@@ -129,13 +142,39 @@ export function TerminalApp({
       "clear",
       "exit",
       "logout",
-      "contracts",
-      "market",
-      "ctf",
-      "clan",
+      "pwd",
+      "cd",
+      "ls",
+      "cat",
+      "mkdir",
+      "rmdir",
+      "rm",
+      "mv",
+      "cp",
+      "touch",
+      "tree",
+      "df",
+      "echo",
       "hackrun"
     ];
   }, []);
+
+  const pathCompleteCommands = useMemo(
+    () =>
+      new Set([
+        "cd",
+        "ls",
+        "cat",
+        "mkdir",
+        "rmdir",
+        "rm",
+        "mv",
+        "cp",
+        "touch",
+        "hackrun"
+      ]),
+    []
+  );
 
   const printLines = (extra: string[]) => {
     if (!extra.length) return;
@@ -148,12 +187,25 @@ export function TerminalApp({
     return matches;
   };
 
-  const listHackFiles = async (): Promise<string[]> => {
+  const listPathCompletion = async (
+    cwd: string,
+    partial: string,
+    hackOnly: boolean
+  ): Promise<string[]> => {
     await initGameFs();
-    const items = await listFs("Scripts");
-    return items
-      .filter((i) => i.kind === "file" && (i.ext ?? "").toLowerCase() === "hack")
-      .map((i) => i.name);
+    const { dirPart, namePrefix } = splitPathCompletionArg(partial);
+    const dirResolved = resolveVirtualPath(cwd, dirPart);
+    let items: FsEntry[];
+    try {
+      items = await listFs(dirResolved);
+    } catch {
+      return [];
+    }
+    let names = items.map((i) => i.name);
+    if (hackOnly) {
+      names = names.filter((n) => n.toLowerCase().endsWith(".hack"));
+    }
+    return names.filter((n) => n.toLowerCase().startsWith(namePrefix.toLowerCase()));
   };
 
   const onTabComplete = async () => {
@@ -164,7 +216,7 @@ export function TerminalApp({
     if (!cleaned && !raw.endsWith(" ")) return;
 
     const hasTrailingSpace = /\s$/.test(raw);
-    const words = cleaned.length ? cleaned.split(/\s+/) : [];
+    const words = cleaned.length ? shellSplit(cleaned) : [];
 
     const isRu = lang === "ru";
 
@@ -182,34 +234,42 @@ export function TerminalApp({
       return;
     }
 
-    // Case B: completing after command with hackrun
     const command = words[0]?.toLowerCase() ?? "";
-    if (command === "hackrun") {
-      // When user typed "hackrun " -> list all
-      const argPrefix = hasTrailingSpace ? "" : words[1] ?? "";
-      const hackFiles = await listHackFiles();
 
-      const matches = hackFiles.filter((f) => f.toLowerCase().startsWith(argPrefix.toLowerCase()));
-      if (!matches.length) {
-        printLines([isRu ? "Нет совпадений." : "No matches."]);
+    // Case B: path completion (cd, ls, cat, …, hackrun)
+    if (pathCompleteCommands.has(command)) {
+      const hackOnly = command === "hackrun";
+      if (words.length === 1 && hasTrailingSpace) {
+        const matches = await listPathCompletion(cwdRef.current, "", hackOnly);
+        if (!matches.length) {
+          printLines([isRu ? "Нет совпадений." : "No matches."]);
+          return;
+        }
+        printLines([isRu ? "Варианты:" : "Matches:", ...matches]);
         return;
       }
-
-      if (hasTrailingSpace) {
-        // Linux-like: show list when multiple options
-        printLines([isRu ? "Доступные файлы:" : "Available files:", ...matches]);
+      if (words.length >= 2) {
+        const argPrefix = hasTrailingSpace ? "" : words[words.length - 1] ?? "";
+        const matches = await listPathCompletion(cwdRef.current, argPrefix, hackOnly);
+        if (!matches.length) {
+          printLines([isRu ? "Нет совпадений." : "No matches."]);
+          return;
+        }
+        if (hasTrailingSpace) {
+          printLines([isRu ? "Варианты:" : "Matches:", ...matches]);
+          return;
+        }
+        const { dirPart } = splitPathCompletionArg(argPrefix);
+        if (matches.length === 1) {
+          const m = matches[0]!;
+          const tail = dirPart ? `${dirPart}/${m}` : m;
+          const rebuilt = [...words.slice(0, -1), tail].join(" ");
+          setCmd(rebuilt);
+          return;
+        }
+        printLines([isRu ? "Варианты:" : "Matches:", ...matches]);
         return;
       }
-
-      if (matches.length === 1) {
-        // Replace only the arg part; keep other text intact (we always append at end)
-        const next = `hackrun ${matches[0]}`;
-        setCmd(next);
-        return;
-      }
-
-      printLines([isRu ? "Варианты:" : "Matches:", ...matches]);
-      return;
     }
 
     // Fallback: completing first word even if there is a trailing space is not supported
@@ -223,14 +283,12 @@ export function TerminalApp({
     setHistory((h) => [...h, normalized]);
     setHistoryIdx(null);
 
-    const out: string[] = [];
-    const parts = normalized.split(" ");
-    const command = parts[0]!.toLowerCase();
-    const args = parts.slice(1);
+    const argv = shellSplit(normalized);
+    const command = argv[0]?.toLowerCase() ?? "";
+    const args = argv.slice(1);
 
     const isRu = lang === "ru";
 
-    // echo the command line
     setLines((prev) => [...prev, `${prompt} ${normalized}`]);
 
     if (command === "hackrun") {
@@ -239,17 +297,17 @@ export function TerminalApp({
       if (!target) {
         setLines((prev) => [
           ...prev,
-          isRu ? "Использование: hackrun <file>" : "Usage: hackrun <file>"
+          isRu ? "Использование: hackrun <файл.hack>" : "Usage: hackrun <file.hack>"
         ]);
         setCmd("");
         return;
       }
 
-      const normalizedTarget = target.replace(/\\/g, "/");
-      const withHackExt = normalizedTarget.endsWith(".hack") ? normalizedTarget : `${normalizedTarget}.hack`;
-      const scriptRelPath = withHackExt.startsWith("Scripts/")
-        ? withHackExt
-        : `Scripts/${withHackExt.replace(/^\.\//, "")}`;
+      const normalizedTarget = target.replace(/\\/g, "/").replace(/^\.\//, "");
+      let scriptRelPath = resolveVirtualPath(cwdRef.current, normalizedTarget);
+      if (!scriptRelPath.toLowerCase().endsWith(".hack")) {
+        scriptRelPath = `${scriptRelPath}.hack`;
+      }
 
       const runToken = ++execTokenRef.current;
       void (async () => {
@@ -274,6 +332,90 @@ export function TerminalApp({
       return;
     }
 
+    if (command === "echo") {
+      const rest = normalized.slice(4).trimStart();
+      const da = rest.match(/^(.*?)\s*>>\s*(.+)$/);
+      const ds = !da && rest.match(/^(.*?)\s*>\s*(.+)$/);
+      if (da || ds) {
+        const m = (da ?? ds) as RegExpMatchArray;
+        const runToken = ++execTokenRef.current;
+        void (async () => {
+          try {
+            await initGameFs();
+            const text = m[1] ?? "";
+            const destRaw = (m[2] ?? "").trim();
+            const rel = resolveVirtualPath(cwdRef.current, destRaw);
+            if (da) {
+              let prev = "";
+              try {
+                prev = await readTextFs(rel);
+              } catch {
+                /* new file */
+              }
+              await writeTextFs(rel, prev + text);
+            } else {
+              await writeTextFs(rel, text);
+            }
+            if (execTokenRef.current !== runToken) return;
+          } catch (e) {
+            if (execTokenRef.current !== runToken) return;
+            const msg = e instanceof Error ? e.message : String(e);
+            setLines((prev) => [...prev, isRu ? `echo: ${msg}` : `echo: ${msg}`]);
+          } finally {
+            if (execTokenRef.current === runToken) setCmd("");
+          }
+        })();
+        return;
+      }
+
+      const line = args.join(" ");
+      setLines((prev) => [...prev, line]);
+      setCmd("");
+      return;
+    }
+
+    if (command === "clear") {
+      setLines([]);
+      setCmd("");
+      return;
+    }
+
+    const fsFirst = new Set([
+      "pwd",
+      "cd",
+      "ls",
+      "cat",
+      "mkdir",
+      "rmdir",
+      "rm",
+      "mv",
+      "cp",
+      "touch",
+      "tree",
+      "df"
+    ]);
+    if (fsFirst.has(command)) {
+      const runToken = ++execTokenRef.current;
+      void (async () => {
+        try {
+          const fsRes = await execTerminalFsLine(argv, cwdRef.current, isRu);
+          if (execTokenRef.current !== runToken) return;
+          if (fsRes?.newCwd !== undefined) setCwdRel(fsRes.newCwd);
+          if (fsRes && fsRes.lines.length > 0) {
+            setLines((prev) => [...prev, ...fsRes.lines]);
+          }
+        } catch (e) {
+          if (execTokenRef.current !== runToken) return;
+          const msg = e instanceof Error ? e.message : String(e);
+          setLines((prev) => [...prev, msg]);
+        } finally {
+          if (execTokenRef.current === runToken) setCmd("");
+        }
+      })();
+      return;
+    }
+
+    const out: string[] = [];
     const push = (s: string) => out.push(s);
 
     switch (command) {
@@ -293,10 +435,6 @@ export function TerminalApp({
             : `Profile\n  id: ${user?.id ?? "n/a"}\n  email: ${user?.email ?? "n/a"}\n  level: ${level}\n  xp: ${xp}`
         );
         break;
-      case "clear":
-        setLines(initialLines);
-        setCmd("");
-        return;
       case "exit":
         push(isRu ? "Закрываем сессию окружения…" : "Closing environment session…");
         out.push("");
@@ -305,23 +443,12 @@ export function TerminalApp({
         push(isRu ? "Выход из аккаунта…" : "Logging out account…");
         out.push("");
         break;
-      case "contracts":
-      case "market":
-      case "ctf":
-      case "clan": {
-        const map: Record<string, string> = {
-          contracts: isRu ? "contracts: проверяем доступ к контрактам…" : "contracts: checking access…",
-          market: isRu ? "market: открываем чёрный рынок…" : "market: opening black market…",
-          ctf: isRu ? "ctf: поднимаем турнирный канал…" : "ctf: opening tournament channel…",
-          clan: isRu ? "clan: синхронизируем клан…" : "clan: syncing clan feed…"
-        };
-        const target = map[command] ?? (isRu ? "Выполняем команду…" : "Executing command…");
-        push(`${target}\n${isRu ? "OK. (заглушка)" : "OK. (stub)"}`);
-        if (args.length > 0) push(isRu ? `Аргументы: ${args.join(", ")}` : `Args: ${args.join(", ")}`);
-        break;
-      }
       default:
-        push(isRu ? `Команда не найдена: ${command}. Попробуй: help` : `Command not found: ${command}. Try: help`);
+        push(
+          isRu
+            ? `Команда не найдена: ${command}. Попробуй: help`
+            : `Command not found: ${command}. Try: help`
+        );
         break;
     }
 
@@ -351,7 +478,7 @@ export function TerminalApp({
 
   return (
     <div
-      className={`terminal-window absolute z-[70] pointer-events-auto flex flex-col overflow-hidden rounded-xl border border-white/10 bg-[#0d1117] shadow-2xl ${
+      className={`terminal-window absolute z-[70] pointer-events-auto flex flex-col overflow-hidden rounded-xl border border-white/10 bg-[#0d1117]/88 shadow-2xl backdrop-blur-md ${
         minimized ? "pointer-events-none opacity-0 scale-95" : ""
       }`}
       onMouseDown={() => onFocus?.()}
@@ -364,7 +491,7 @@ export function TerminalApp({
       }}
     >
       <div
-        className="flex cursor-grab items-center border-b border-white/10 bg-[#2d3139] px-4 py-2.5"
+        className="flex cursor-grab items-center border-b border-white/10 bg-[#2d3139]/90 px-4 py-2.5 backdrop-blur-sm"
         onPointerDown={(e) => startDrag(e, e.currentTarget)}
         role="presentation"
       >
@@ -374,21 +501,31 @@ export function TerminalApp({
             aria-label="close"
             className="h-3 w-3 rounded-full bg-[#ff5f57] hover:opacity-90"
             onMouseDown={(e) => e.stopPropagation()}
-            onClick={onClose}
+            onClick={() => {
+              playWindowClose();
+              onClose();
+            }}
           />
           <button
             type="button"
             aria-label="minimize"
             className="h-3 w-3 rounded-full bg-[#febc2e] hover:opacity-90"
             onMouseDown={(e) => e.stopPropagation()}
-            onClick={onMinimize}
+            onClick={() => {
+              playWindowMinimize();
+              onMinimize();
+            }}
           />
           <button
             type="button"
             aria-label="maximize"
             className="h-3 w-3 rounded-full bg-[#28c840] hover:opacity-90"
             onMouseDown={(e) => e.stopPropagation()}
-            onClick={toggleMaximize}
+            onClick={() => {
+              if (maximized) playWindowRestore();
+              else playWindowMaximize();
+              toggleMaximize();
+            }}
           />
         </div>
         <div className="flex-1 text-center text-xs text-slate-400">{t.terminalWindowTitle}</div>
@@ -442,17 +579,17 @@ export function TerminalApp({
             {l.length === 0 ? "\u00a0" : l}
           </div>
         ))}
-        <div className="mt-1 flex items-center gap-2">
-          <span className="text-green-200">{prompt}</span>
+        <div className="mt-1 flex min-w-0 items-center gap-2">
+          <span className="shrink-0 whitespace-nowrap text-green-200">{prompt}</span>
           <input
-            className="terminal-input w-full select-text bg-transparent p-0 text-sm text-green-100 outline-none"
+            className="terminal-input min-w-0 flex-1 select-text bg-transparent p-0 text-sm text-green-100 outline-none"
             value={cmd}
             onChange={(e) => setCmd(e.target.value)}
             onKeyDown={(e) => {
               const key = e.key.toLowerCase();
               if (e.ctrlKey && key === "l") {
                 e.preventDefault();
-                setLines(initialLines);
+                setLines([]);
                 setCmd("");
                 return;
               }

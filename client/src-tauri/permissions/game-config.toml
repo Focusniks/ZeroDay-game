@@ -1,3 +1,8 @@
+# IPC commands registered in src/lib.rs (invoke_handler!) must each have:
+#   1) a [[permission]] block below with commands.allow = ["command_name"]
+#   2) the same identifier listed in capabilities/default.json
+# Current set: 14 custom commands + core:default on the window.
+
 [[permission]]
 identifier = "allow-get-game-config"
 description = "Read zeroday_game.json next to the game executable."
@@ -22,6 +27,11 @@ commands.allow = ["fs_init"]
 identifier = "allow-fs-root-path"
 description = "Expose filesystem root path."
 commands.allow = ["fs_root_path"]
+
+[[permission]]
+identifier = "allow-fs-disk-usage"
+description = "Disk usage (capacity/used) for the in-game filesystem root."
+commands.allow = ["fs_disk_usage"]
 
 [[permission]]
 identifier = "allow-fs-list"

@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { playDialogInfo } from "../../lib/osSounds";
 
 type Props = {
   open: boolean;
@@ -27,6 +29,7 @@ export function TextPromptDialog({
   useEffect(() => {
     if (!open) return;
     setValue(defaultValue);
+    playDialogInfo();
     // Let DOM paint first.
     window.setTimeout(() => inputRef.current?.focus(), 0);
   }, [open, defaultValue]);
@@ -35,9 +38,19 @@ export function TextPromptDialog({
 
   if (!open) return null;
 
-  return (
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/55">
-      <div className="w-[460px] max-w-[92vw] rounded-xl border border-white/10 bg-[#0d1117] p-4 shadow-2xl">
+  const node = (
+    <div
+      className="fixed inset-0 z-[2500] flex items-center justify-center bg-black/55"
+      onPointerDown={(e) => {
+        e.stopPropagation();
+      }}
+    >
+      <div
+        className="w-[460px] max-w-[92vw] rounded-xl border border-white/10 bg-[#0d1117] p-4 shadow-2xl"
+        onPointerDown={(e) => {
+          e.stopPropagation();
+        }}
+      >
         <div className="mb-3 text-sm font-bold text-slate-100">{title}</div>
         <input
           ref={inputRef}
@@ -71,5 +84,7 @@ export function TextPromptDialog({
       </div>
     </div>
   );
+
+  return typeof document !== "undefined" ? createPortal(node, document.body) : node;
 }
 

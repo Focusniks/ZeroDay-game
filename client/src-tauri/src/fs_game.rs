@@ -4,6 +4,7 @@ use std::path::{Component, Path, PathBuf};
 use base64::{engine::general_purpose, Engine as _};
 
 const FILES_DIRNAME: &str = "zeroday_game_files";
+const USERS_DIRNAME: &str = "users";
 
 // Soft guards for resource exhaustion. The game UI is expected to handle small-ish
 // documents/scripts and moderate media sizes.
@@ -39,12 +40,31 @@ pub struct FsDiskUsage {
   pub free_bytes: u64,
 }
 
-fn files_root() -> Result<PathBuf, String> {
+fn sanitize_user_scope(user_scope: &str) -> String {
+  let trimmed = user_scope.trim();
+  if trimmed.is_empty() {
+    return "default".to_string();
+  }
+  let mut out = String::with_capacity(trimmed.len());
+  for ch in trimmed.chars() {
+    let ok = ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' || ch == '.';
+    out.push(if ok { ch } else { '_' });
+  }
+  let out = out.trim_matches('.');
+  if out.is_empty() {
+    "default".to_string()
+  } else {
+    out.chars().take(80).collect()
+  }
+}
+
+fn files_root(user_scope: Option<String>) -> Result<PathBuf, String> {
   let exe = std::env::current_exe().map_err(|e| e.to_string())?;
   let dir = exe
     .parent()
     .ok_or_else(|| "executable has no parent directory".to_string())?;
-  Ok(dir.join(FILES_DIRNAME))
+  let scope = sanitize_user_scope(user_scope.as_deref().unwrap_or("default"));
+  Ok(dir.join(FILES_DIRNAME).join(USERS_DIRNAME).join(scope))
 }
 
 fn sanitize_rel_path(rel_path: &str) -> Result<PathBuf, String> {
@@ -74,8 +94,8 @@ fn sanitize_rel_path(rel_path: &str) -> Result<PathBuf, String> {
   Ok(out)
 }
 
-fn abs_from_rel(rel_path: &str) -> Result<PathBuf, String> {
-  let base = files_root()?;
+fn abs_from_rel(rel_path: &str, user_scope: Option<String>) -> Result<PathBuf, String> {
+  let base = files_root(user_scope)?;
   let rel = sanitize_rel_path(rel_path)?;
   Ok(base.join(rel))
 }
@@ -106,8 +126,8 @@ fn dir_size_recursive(path: &Path) -> Result<u64, String> {
   Ok(sum)
 }
 
-fn ensure_capacity_after_write(target_abs: &Path, new_size: u64) -> Result<(), String> {
-  let root = files_root()?;
+fn ensure_capacity_after_write(target_abs: &Path, new_size: u64, user_scope: Option<String>) -> Result<(), String> {
+  let root = files_root(user_scope)?;
   let used = dir_size_recursive(&root)?;
   let old_size = if target_abs.exists() && target_abs.is_file() {
     fs::metadata(target_abs).map_err(|e| e.to_string())?.len()
@@ -133,8 +153,9 @@ fn is_root_rel(rel_path: &str) -> bool {
 }
 
 #[tauri::command]
-pub fn fs_init() -> Result<(), String> {
-  let base = files_root()?;
+#[allow(non_snake_case)]
+pub fn fs_init(userScope: Option<String>) -> Result<(), String> {
+  let base = files_root(userScope)?;
   fs::create_dir_all(&base).map_err(|e| e.to_string())?;
 
   // Subfolders (physical)
@@ -144,6 +165,10 @@ pub fn fs_init() -> Result<(), String> {
   let scripts = base.join("Scripts");
   let wallpapers = base.join("Wallpapers");
   let trash = base.join("Trash");
+  let desktop = base.join("Desktop");
+  let documents = base.join("Documents");
+  let music = base.join("Music");
+  let downloads = base.join("Downloads");
 
   fs::create_dir_all(photos).map_err(|e| e.to_string())?;
   fs::create_dir_all(videos).map_err(|e| e.to_string())?;
@@ -151,19 +176,25 @@ pub fn fs_init() -> Result<(), String> {
   fs::create_dir_all(scripts).map_err(|e| e.to_string())?;
   fs::create_dir_all(wallpapers).map_err(|e| e.to_string())?;
   fs::create_dir_all(trash).map_err(|e| e.to_string())?;
+  fs::create_dir_all(desktop).map_err(|e| e.to_string())?;
+  fs::create_dir_all(documents).map_err(|e| e.to_string())?;
+  fs::create_dir_all(music).map_err(|e| e.to_string())?;
+  fs::create_dir_all(downloads).map_err(|e| e.to_string())?;
   Ok(())
 }
 
 #[tauri::command]
-pub fn fs_root_path() -> Result<String, String> {
-  files_root()
+#[allow(non_snake_case)]
+pub fn fs_root_path(userScope: Option<String>) -> Result<String, String> {
+  files_root(userScope)
     .map(|p| p.to_string_lossy().to_string())
     .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn fs_disk_usage() -> Result<FsDiskUsage, String> {
-  let root = files_root()?;
+#[allow(non_snake_case)]
+pub fn fs_disk_usage(userScope: Option<String>) -> Result<FsDiskUsage, String> {
+  let root = files_root(userScope)?;
   let used = dir_size_recursive(&root)?;
   let free = DISK_CAPACITY_BYTES.saturating_sub(used);
   Ok(FsDiskUsage {
@@ -175,9 +206,9 @@ pub fn fs_disk_usage() -> Result<FsDiskUsage, String> {
 
 #[tauri::command]
 #[allow(non_snake_case)]
-pub fn fs_list(relPath: String) -> Result<Vec<FsEntry>, String> {
-  let abs = abs_from_rel(&relPath)?;
-  let base = files_root()?;
+pub fn fs_list(relPath: String, userScope: Option<String>) -> Result<Vec<FsEntry>, String> {
+  let abs = abs_from_rel(&relPath, userScope.clone())?;
+  let base = files_root(userScope)?;
 
   let rd = fs::read_dir(&abs).map_err(|e| e.to_string())?;
   let mut out: Vec<FsEntry> = Vec::new();
@@ -234,19 +265,19 @@ pub fn fs_list(relPath: String) -> Result<Vec<FsEntry>, String> {
 
 #[tauri::command]
 #[allow(non_snake_case)]
-pub fn fs_mkdir(relPath: String) -> Result<(), String> {
-  let abs = abs_from_rel(&relPath)?;
+pub fn fs_mkdir(relPath: String, userScope: Option<String>) -> Result<(), String> {
+  let abs = abs_from_rel(&relPath, userScope)?;
   fs::create_dir_all(&abs).map_err(|e| e.to_string())?;
   Ok(())
 }
 
 #[tauri::command]
 #[allow(non_snake_case)]
-pub fn fs_delete(relPath: String) -> Result<(), String> {
+pub fn fs_delete(relPath: String, userScope: Option<String>) -> Result<(), String> {
   if is_root_rel(&relPath) {
     return Err("Refusing to delete filesystem root".to_string());
   }
-  let abs = abs_from_rel(&relPath)?;
+  let abs = abs_from_rel(&relPath, userScope)?;
   if abs.is_dir() {
     fs::remove_dir_all(&abs).map_err(|e| e.to_string())?;
   } else {
@@ -257,13 +288,21 @@ pub fn fs_delete(relPath: String) -> Result<(), String> {
 
 #[tauri::command]
 #[allow(non_snake_case)]
-pub fn fs_read_text(relPath: String) -> Result<String, String> {
+pub fn fs_read_text(relPath: String, userScope: Option<String>) -> Result<String, String> {
   if is_root_rel(&relPath) {
     return Err("Refusing to read filesystem root".to_string());
   }
-  let abs = abs_from_rel(&relPath)?;
+  let abs = abs_from_rel(&relPath, userScope)?;
   let meta = fs::metadata(&abs).map_err(|e| e.to_string())?;
-  if meta.is_file() && meta.len() > MAX_TEXT_BYTES {
+  if meta.is_dir() {
+    return Err(
+      "Is a directory: cat cannot read folders (use ls)".to_string(),
+    );
+  }
+  if !meta.is_file() {
+    return Err("Not a regular file".to_string());
+  }
+  if meta.len() > MAX_TEXT_BYTES {
     return Err(format!(
       "Text file is too large (max {} bytes)",
       MAX_TEXT_BYTES
@@ -274,7 +313,7 @@ pub fn fs_read_text(relPath: String) -> Result<String, String> {
 
 #[tauri::command]
 #[allow(non_snake_case)]
-pub fn fs_write_text(relPath: String, content: String) -> Result<(), String> {
+pub fn fs_write_text(relPath: String, content: String, userScope: Option<String>) -> Result<(), String> {
   if is_root_rel(&relPath) {
     return Err("Refusing to write to filesystem root".to_string());
   }
@@ -284,24 +323,30 @@ pub fn fs_write_text(relPath: String, content: String) -> Result<(), String> {
       MAX_TEXT_BYTES
     ));
   }
-  let abs = abs_from_rel(&relPath)?;
+  let abs = abs_from_rel(&relPath, userScope.clone())?;
   if let Some(parent) = abs.parent() {
     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
   }
-  ensure_capacity_after_write(&abs, content.len() as u64)?;
+  ensure_capacity_after_write(&abs, content.len() as u64, userScope)?;
   fs::write(&abs, content).map_err(|e| e.to_string())?;
   Ok(())
 }
 
 #[tauri::command]
 #[allow(non_snake_case)]
-pub fn fs_read_bytes_base64(relPath: String) -> Result<String, String> {
+pub fn fs_read_bytes_base64(relPath: String, userScope: Option<String>) -> Result<String, String> {
   if is_root_rel(&relPath) {
     return Err("Refusing to read filesystem root".to_string());
   }
-  let abs = abs_from_rel(&relPath)?;
+  let abs = abs_from_rel(&relPath, userScope)?;
   let meta = fs::metadata(&abs).map_err(|e| e.to_string())?;
-  if meta.is_file() && meta.len() > MAX_BINARY_BYTES {
+  if meta.is_dir() {
+    return Err("Is a directory (cannot read as binary file)".to_string());
+  }
+  if !meta.is_file() {
+    return Err("Not a regular file".to_string());
+  }
+  if meta.len() > MAX_BINARY_BYTES {
     return Err(format!(
       "Binary file is too large (max {} bytes, decoded)",
       MAX_BINARY_BYTES
@@ -313,11 +358,15 @@ pub fn fs_read_bytes_base64(relPath: String) -> Result<String, String> {
 
 #[tauri::command]
 #[allow(non_snake_case)]
-pub fn fs_write_bytes_base64(relPath: String, contentBase64: String) -> Result<(), String> {
+pub fn fs_write_bytes_base64(
+  relPath: String,
+  contentBase64: String,
+  userScope: Option<String>,
+) -> Result<(), String> {
   if is_root_rel(&relPath) {
     return Err("Refusing to write to filesystem root".to_string());
   }
-  let abs = abs_from_rel(&relPath)?;
+  let abs = abs_from_rel(&relPath, userScope.clone())?;
   if let Some(parent) = abs.parent() {
     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
   }
@@ -342,19 +391,19 @@ pub fn fs_write_bytes_base64(relPath: String, contentBase64: String) -> Result<(
       MAX_BINARY_BYTES
     ));
   }
-  ensure_capacity_after_write(&abs, bytes.len() as u64)?;
+  ensure_capacity_after_write(&abs, bytes.len() as u64, userScope)?;
   fs::write(&abs, bytes).map_err(|e| e.to_string())?;
   Ok(())
 }
 
 #[tauri::command]
 #[allow(non_snake_case)]
-pub fn fs_move(srcRelPath: String, dstRelPath: String) -> Result<(), String> {
+pub fn fs_move(srcRelPath: String, dstRelPath: String, userScope: Option<String>) -> Result<(), String> {
   if is_root_rel(&srcRelPath) || is_root_rel(&dstRelPath) {
     return Err("Refusing to move filesystem root".to_string());
   }
-  let src = abs_from_rel(&srcRelPath)?;
-  let dst = abs_from_rel(&dstRelPath)?;
+  let src = abs_from_rel(&srcRelPath, userScope.clone())?;
+  let dst = abs_from_rel(&dstRelPath, userScope)?;
   if let Some(parent) = dst.parent() {
     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
   }

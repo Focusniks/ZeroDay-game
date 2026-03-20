@@ -1,5 +1,11 @@
 import type { ReactNode } from "react";
 import type { GameLanguage } from "../../lib/gameConfig";
+import {
+  playWindowClose,
+  playWindowMaximize,
+  playWindowMinimize,
+  playWindowRestore
+} from "../../lib/osSounds";
 import { useWindowFrame } from "./useWindowFrame";
 
 type Props = {
@@ -53,21 +59,31 @@ export function FloatingWindow({
             aria-label="close"
             className="h-3 w-3 rounded-full bg-[#ff5f57] hover:opacity-90"
             onMouseDown={(e) => e.stopPropagation()}
-            onClick={onClose}
+            onClick={() => {
+              playWindowClose();
+              onClose();
+            }}
           />
           <button
             type="button"
             aria-label="minimize"
             className="h-3 w-3 rounded-full bg-[#febc2e] hover:opacity-90"
             onMouseDown={(e) => e.stopPropagation()}
-            onClick={onMinimize}
+            onClick={() => {
+              playWindowMinimize();
+              onMinimize();
+            }}
           />
           <button
             type="button"
             aria-label="maximize"
             className="h-3 w-3 rounded-full bg-[#28c840] hover:opacity-90"
             onMouseDown={(e) => e.stopPropagation()}
-            onClick={toggleMaximize}
+            onClick={() => {
+              if (maximized) playWindowRestore();
+              else playWindowMaximize();
+              toggleMaximize();
+            }}
           />
         </div>
         <div className="flex-1 text-center text-xs text-slate-400">{title}</div>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { playWindowMoveEnd } from "../../lib/osSounds";
 
 type Rect = { x: number; y: number; w: number; h: number };
 type ResizeDir = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
@@ -56,6 +57,8 @@ export function useWindowFrame(options: Options) {
   const prevRectRef = useRef<Rect | null>(null);
   const dragRef = useRef<DragState>(null);
   const resizeRef = useRef<ResizeState>(null);
+  const dragMovedRef = useRef(false);
+  const resizeMovedRef = useRef(false);
 
   useEffect(() => {
     const onPointerMove = (e: PointerEvent) => {
@@ -64,6 +67,7 @@ export function useWindowFrame(options: Options) {
         if (e.pointerId !== drag.pointerId) return;
         const dx = e.clientX - drag.startX;
         const dy = e.clientY - drag.startY;
+        if (dx * dx + dy * dy > 49) dragMovedRef.current = true;
         setRect((prev) => ({ ...prev, x: drag.originX + dx, y: drag.originY + dy }));
         return;
       }
@@ -100,12 +104,30 @@ export function useWindowFrame(options: Options) {
         y -= minH - h;
       }
 
-      setRect({ x, y, w: Math.max(minW, w), h: Math.max(minH, h) });
+      const next = { x, y, w: Math.max(minW, w), h: Math.max(minH, h) };
+      if (
+        Math.abs(next.x - startRect.x) +
+          Math.abs(next.y - startRect.y) +
+          Math.abs(next.w - startRect.w) +
+          Math.abs(next.h - startRect.h) >
+        6
+      ) {
+        resizeMovedRef.current = true;
+      }
+      setRect(next);
     };
 
     const onPointerEnd = (e: PointerEvent) => {
-      if (dragRef.current && e.pointerId === dragRef.current.pointerId) dragRef.current = null;
-      if (resizeRef.current && e.pointerId === resizeRef.current.pointerId) resizeRef.current = null;
+      if (dragRef.current && e.pointerId === dragRef.current.pointerId) {
+        if (dragMovedRef.current) playWindowMoveEnd();
+        dragMovedRef.current = false;
+        dragRef.current = null;
+      }
+      if (resizeRef.current && e.pointerId === resizeRef.current.pointerId) {
+        if (resizeMovedRef.current) playWindowMoveEnd();
+        resizeMovedRef.current = false;
+        resizeRef.current = null;
+      }
     };
 
     window.addEventListener("pointermove", onPointerMove);
@@ -125,6 +147,7 @@ export function useWindowFrame(options: Options) {
     e.preventDefault();
     e.stopPropagation();
     const cur = rectRef.current;
+    dragMovedRef.current = false;
     dragRef.current = {
       pointerId: e.pointerId,
       startX: e.clientX,
@@ -139,6 +162,7 @@ export function useWindowFrame(options: Options) {
     if (maximizedRef.current) return;
     e.preventDefault();
     e.stopPropagation();
+    resizeMovedRef.current = false;
     resizeRef.current = {
       pointerId: e.pointerId,
       dir,

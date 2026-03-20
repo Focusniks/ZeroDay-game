@@ -25,8 +25,6 @@ export type GameStrings = {
   dockNetwork: string;
   dockSettings: string;
   terminalWindowTitle: string;
-  terminalWelcomeLine: (u: string) => string;
-  terminalBootBlock: (u: string, ip: string, level: number, xp: number) => string;
   profileTitle: string;
   profileId: string;
   profileEmail: string;
@@ -61,22 +59,6 @@ const ru: GameStrings = {
   dockNetwork: "Сеть",
   dockSettings: "Параметры",
   terminalWindowTitle: "Терминал — сессия",
-  terminalWelcomeLine: (u) => `user@${u}:~$ ./zeroday-session`,
-  terminalBootBlock: (u, ip, level, xp) =>
-    `boot> профиль загружен
-boot> каналы darknet: standby
-boot> лента клана: синхронизация… OK
-
-Добро пожаловать, ${u}.
-Виртуальный IP: ${ip}
-Уровень: ${level}  |  XP: ${xp}
-
-Доступные команды:
-  contracts   — контракты
-  market      — чёрный рынок
-  ctf         — турниры
-  clan        — клан
-`,
   profileTitle: "Профиль",
   profileId: "id",
   profileEmail: "email",
@@ -111,22 +93,6 @@ const en: GameStrings = {
   dockNetwork: "Network",
   dockSettings: "Settings",
   terminalWindowTitle: "Terminal — session",
-  terminalWelcomeLine: (u) => `user@${u}:~$ ./zeroday-session`,
-  terminalBootBlock: (u, ip, level, xp) =>
-    `boot> profile loaded
-boot> darknet channels: standby
-boot> clan feed: sync… OK
-
-Welcome, ${u}.
-Virtual IP: ${ip}
-Level: ${level}  |  XP: ${xp}
-
-Available commands:
-  contracts   — contracts
-  market      — black market
-  ctf         — tournaments
-  clan        — clan
-`,
   profileTitle: "Profile",
   profileId: "id",
   profileEmail: "email",
