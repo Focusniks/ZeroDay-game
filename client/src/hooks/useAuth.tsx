@@ -12,6 +12,8 @@ type AuthContextValue = {
   login: (email: string, password: string) => Promise<void>;
   register: (username: string, email: string, password: string) => Promise<void>;
   logout: () => void;
+  sendJson: (message: any) => void;
+  lastMessage: string | null;
 };
 
 const STORAGE_TOKEN_KEY = "zeroday.token";
@@ -19,13 +21,14 @@ const STORAGE_USER_KEY = "zeroday.user";
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-const DEFAULT_WS_URL = "ws://127.0.0.1:8080";
+// IP адрес облачного сервера Timeweb
+const DEFAULT_WS_URL = "ws://85.239.35.171:8080";
 
 function normalizeWsUrl(url: string): string {
-  // Windows часто резолвит `localhost` в IPv6 (::1), а backend может слушать только IPv4 (127.0.0.1).
+  // Windows часто резолвит `localhost` в IPv6 (::1), а backend может слушать только IPv4.
   return url
-    .replace(/^ws:\/\/localhost\b/i, "ws://127.0.0.1")
-    .replace(/^wss:\/\/localhost\b/i, "wss://127.0.0.1");
+    .replace(/^ws:\/\/localhost\b/i, "ws://85.239.35.171")
+    .replace(/^wss:\/\/localhost\b/i, "wss://85.239.35.171");
 }
 
 type PendingAuthRequest = {
@@ -222,9 +225,11 @@ export function AuthProvider({
       systemLoading,
       login,
       register,
-      logout
+      logout,
+      sendJson,
+      lastMessage
     }),
-    [readyState, systemLoading, token, user, wsUrl, login, register, logout]
+    [readyState, systemLoading, token, user, wsUrl, login, register, logout, sendJson, lastMessage]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

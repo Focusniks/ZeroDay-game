@@ -2,7 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type ReadyState = "connecting" | "open" | "closed" | "error";
 
-export function useWebSocket(url: string) {
+// IP адрес облачного сервера Timeweb
+const DEFAULT_WS_URL = "ws://85.239.35.171:8080";
+
+export function useWebSocket(url?: string) {
+  const wsUrl = url || DEFAULT_WS_URL;
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
   const attemptsRef = useRef(0);
@@ -41,7 +45,7 @@ export function useWebSocket(url: string) {
 
       let ws: WebSocket;
       try {
-        ws = new WebSocket(url);
+        ws = new WebSocket(wsUrl);
       } catch (e) {
         setReadyState("error");
         scheduleReconnect();
@@ -61,7 +65,7 @@ export function useWebSocket(url: string) {
       };
       ws.onerror = () => {
         setReadyState("error");
-        // onclose will also schedule reconnect
+        // onclose will also trigger scheduleReconnect
       };
       ws.onmessage = (event) => {
         if (typeof event.data === "string") {
@@ -81,7 +85,7 @@ export function useWebSocket(url: string) {
         // ignore close race
       }
     };
-  }, [url]);
+  }, [wsUrl]);
 
   const sendRaw = useCallback((payload: string) => {
     const ws = wsRef.current;

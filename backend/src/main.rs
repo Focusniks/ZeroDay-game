@@ -10,6 +10,8 @@ use std::env;
 use std::path::Path;
 use uuid::Uuid;
 use zeroday_backend::{auth, browser, db, websocket, fs_online};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 #[derive(Clone)]
 struct AppState {
@@ -1182,17 +1184,23 @@ async fn main() -> anyhow::Result<()> {
 
     info!("DB connected and migrations applied");
 
+    // Создаем глобальное хранилище активных WebSocket подключений
+    let connections: websocket::SharedConnections = Arc::new(RwLock::new(std::collections::HashMap::new()));
+
     let ws_task = {
         let ws_host = ws_host.clone();
         let ws_pool = pool.clone();
         let ws_secret = jwt_secret.clone();
-        tokio::spawn(async move { websocket::run_ws_server(&ws_host, ws_port, ws_pool, ws_secret).await })
+        let connections = Arc::clone(&connections);
+        tokio::spawn(async move { websocket::run_ws_server(&ws_host, ws_port, ws_pool, ws_secret, connections).await })
     };
 
     let state = web::Data::new(AppState {
         pool,
         jwt_secret: jwt_secret.clone(),
     });
+
+    // Разрешаем все origins для разработки или указываем конкретные
     let cors_origin = web_origin.clone();
 
     info!("HTTP server listening on http://{http_host}:{http_port}");
@@ -1200,11 +1208,17 @@ async fn main() -> anyhow::Result<()> {
     let server = HttpServer::new(move || {
         let cors = Cors::default()
             .allowed_origin(&cors_origin)
-            .allowed_methods(vec!["GET", "POST", "OPTIONS"])
+            .allowed_origin("http://localhost:5173")
+            .allowed_origin("http://127.0.0.1:5173")
+            .allowed_origin("http://85.239.35.171:5173")
+            .allowed_origin("http://85.239.35.171")
+            .allowed_origin("https://85.239.35.171")
+            .allowed_methods(vec!["GET", "POST", "PUT", "DELETE", "OPTIONS"])
             .allowed_headers(vec![
                 actix_web::http::header::AUTHORIZATION,
                 actix_web::http::header::CONTENT_TYPE,
                 actix_web::http::header::ACCEPT,
+                actix_web::http::header::ORIGIN,
             ])
             .supports_credentials()
             .max_age(3600);

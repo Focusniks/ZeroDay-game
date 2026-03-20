@@ -43,6 +43,7 @@ import { CodeEditorApp } from "../components/code/CodeEditorApp";
 import { MediaApp } from "../components/media/MediaApp";
 import { ZeroBrowser } from "../components/browser/ZeroBrowser";
 import { NetworkPopover } from "../components/network/NetworkPopover";
+import { Messenger } from "../components/Messenger";
 import {
   findUtcMsForZonedDate,
   formatZonedDateShort,
@@ -95,6 +96,7 @@ type StartMenuHandlerApi = {
   openScripts: () => void;
   openMedia: () => void;
   openBrowser: () => void;
+  openMessenger: () => void;
 };
 
 export type StartMenuCatalogRow = {
@@ -248,6 +250,21 @@ function buildStartMenuCatalog(lang: GameLanguage, h: StartMenuHandlerApi): {
         "internet",
         "сеть",
         "network"
+      ),
+      row(
+        "internet-messenger",
+        <TaskbarThemeIcon src={themeIconUrl("browser.svg")} alt="" className={smIco} />,
+        "Мессенджер",
+        "Messenger",
+        () => h.openMessenger(),
+        "мессенджер",
+        "messenger",
+        "чат",
+        "chat",
+        "сообщения",
+        "messages",
+        "signal",
+        "переписка"
       ),
       row(
         "internet-net-settings",
@@ -833,7 +850,7 @@ export function DashboardPage() {
   };
 
   // Window stacking / focus management (full rewrite: shared mechanics for all app windows).
-  type WindowId = "terminal" | "settings" | "files" | "notes" | "scripts" | "media" | "browser";
+  type WindowId = "terminal" | "settings" | "files" | "notes" | "scripts" | "media" | "browser" | "messenger";
   type WindowBaseState = { id: string; minimized: boolean; z: number };
   const [activeWindowToken, setActiveWindowToken] = useState<string | null>(null);
   const zTopRef = useRef(90);
@@ -966,6 +983,24 @@ export function DashboardPage() {
     if (activeWindowToken === makeWindowToken("browser", id)) setActiveWindowToken(null);
   };
   const focusBrowserWindow = (id: string) => focusWindowInList(setBrowserWindows, "browser", id);
+
+  type MessengerWindowState = WindowBaseState;
+  const [messengerWindows, setMessengerWindows] = useState<MessengerWindowState[]>([]);
+  const openMessenger = () => {
+    const z = nextZ();
+    const id = makeWindowId();
+    setMessengerWindows((prev) => [...prev, { id, minimized: false, z }]);
+    setActiveWindowToken(makeWindowToken("messenger", id));
+  };
+  const closeMessengerWindow = (id: string) => {
+    setMessengerWindows((prev) => prev.filter((w) => w.id !== id));
+    if (activeWindowToken === makeWindowToken("messenger", id)) setActiveWindowToken(null);
+  };
+  const minimizeMessengerWindow = (id: string) => {
+    setMessengerWindows((prev) => prev.map((w) => (w.id === id ? { ...w, minimized: true } : w)));
+    if (activeWindowToken === makeWindowToken("messenger", id)) setActiveWindowToken(null);
+  };
+  const focusMessengerWindow = (id: string) => focusWindowInList(setMessengerWindows, "messenger", id);
 
   /** Элементы папки `Desktop/` в ФС — иконки на рабочем столе (плюс «Компьютер» и «Корзина»). */
   const [desktopItems, setDesktopItems] = useState<FsEntry[]>([]);
@@ -1697,6 +1732,15 @@ export function DashboardPage() {
       title: "Zero Browser",
       icon: <TaskbarThemeIcon src={themeIconUrl("browser.svg")} alt="" />,
       minimized: w.minimized
+    })),
+    ...messengerWindows.map((w) => ({
+      token: makeWindowToken("messenger", w.id),
+      windowType: "messenger" as const,
+      id: w.id,
+      label: lang === "ru" ? "Мессенджер" : "Messenger",
+      title: lang === "ru" ? "Мессенджер" : "Messenger",
+      icon: <TaskbarThemeIcon src={themeIconUrl("browser.svg")} alt="" />,
+      minimized: w.minimized
     }))
   ];
 
@@ -1726,6 +1770,10 @@ export function DashboardPage() {
         setBrowserWindows((prev) => prev.map((w) => w.id === entry.id ? { ...w, minimized: false } : w));
         focusBrowserWindow(entry.id);
         break;
+      case "messenger":
+        setMessengerWindows((prev) => prev.map((w) => w.id === entry.id ? { ...w, minimized: false } : w));
+        focusMessengerWindow(entry.id);
+        break;
     }
   };
 
@@ -1752,6 +1800,9 @@ export function DashboardPage() {
       case "browser":
         minimizeBrowserWindow(entry.id);
         break;
+      case "messenger":
+        minimizeMessengerWindow(entry.id);
+        break;
     }
   };
 
@@ -1777,6 +1828,9 @@ export function DashboardPage() {
         break;
       case "browser":
         closeBrowserWindow(entry.id);
+        break;
+      case "messenger":
+        closeMessengerWindow(entry.id);
         break;
     }
   };
@@ -1900,7 +1954,8 @@ export function DashboardPage() {
     openNotes,
     openScripts,
     openMedia,
-    openBrowser
+    openBrowser,
+    openMessenger
   });
 
   return (
@@ -3160,6 +3215,40 @@ export function DashboardPage() {
             isOnline={isNetworkConnected}
             bandwidth={networkBandwidth}
           />
+        ))}
+
+        {/* Messenger windows */}
+        {messengerWindows.map((w) => (
+          <div
+            key={w.id}
+            className="absolute inset-0"
+            style={{ zIndex: w.z }}
+            onMouseDown={() => focusMessengerWindow(w.id)}
+          >
+            <div className="h-full w-full">
+              <Messenger />
+            </div>
+            <div className="absolute top-2 right-2 flex gap-2">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  minimizeMessengerWindow(w.id);
+                }}
+                className="w-7 h-7 rounded bg-slate-700 hover:bg-slate-600 flex items-center justify-center text-slate-200"
+              >
+                −
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  closeMessengerWindow(w.id);
+                }}
+                className="w-7 h-7 rounded bg-red-600 hover:bg-red-500 flex items-center justify-center text-white"
+              >
+                ×
+              </button>
+            </div>
+          </div>
         ))}
 
         {/* Terminal window */}

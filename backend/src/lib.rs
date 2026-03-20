@@ -3,6 +3,7 @@ pub mod db;
 pub mod websocket;
 pub mod fs_online;
 pub mod browser;
+pub mod messenger;
 
 use jsonwebtoken::{DecodingKey, EncodingKey};
 

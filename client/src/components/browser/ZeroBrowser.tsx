@@ -4,6 +4,11 @@ import { useWindowFrame } from "../window/useWindowFrame";
 import { playWindowClose, playWindowMaximize, playWindowMinimize, playWindowRestore } from "../../lib/osSounds";
 import { themeIconUrl } from "../../lib/themeIcons";
 import { useAuth } from "../../hooks/useAuth";
+import { MessengerWeb } from "../../pages/MessengerPage";
+import { CryptoWalletSite } from "../../pages/CryptoWalletSite";
+import { HostingSite, hostingSites } from "../../pages/HostingSites";
+import { ISPSite, ispSites } from "../../pages/ISPSites";
+import { ExternalLink } from "lucide-react";
 
 type Props = {
   lang: GameLanguage;
@@ -61,7 +66,17 @@ const SYSTEM_PAGES = [
   { url: "zeroday://search", title: "Search" },
   { url: "zeroday://bookmarks", title: "Bookmarks" },
   { url: "zeroday://settings", title: "Settings" },
-  { url: "zeroday://404", title: "Not Found" }
+  { url: "zeroday://404", title: "Not Found" },
+  { url: "zeroday://messenger", title: "Messenger" },
+  { url: "zeroday://crypto", title: "Crypto Wallet" },
+  { url: "zeroday://hosting/cloudpro", title: "CloudPro Hosting" },
+  { url: "zeroday://hosting/fasthost", title: "FastHost" },
+  { url: "zeroday://hosting/securehost", title: "SecureHost" },
+  { url: "zeroday://hosting/budgethost", title: "BudgetHost" },
+  { url: "zeroday://isp/freenet", title: "FreeNet ISP" },
+  { url: "zeroday://isp/speedmax", title: "SpeedMax" },
+  { url: "zeroday://isp/homenet", title: "HomeNet" },
+  { url: "zeroday://isp/fiberoptic", title: "FiberOptic" },
 ];
 
 export function ZeroBrowser({
@@ -129,11 +144,11 @@ export function ZeroBrowser({
     const loadData = async () => {
       try {
         const [sitesRes, bookmarksRes, settingsRes] = await Promise.all([
-          fetch("http://localhost:8080/api/browser/sites"),
-          fetch(`http://localhost:8080/api/browser/bookmarks`, {
+          fetch("http://85.239.35.171:8000/api/browser/sites"),
+          fetch(`http://85.239.35.171:8000/api/browser/bookmarks`, {
             headers: { "Authorization": `Bearer ${localStorage.getItem("zeroday.token")}` }
           }),
-          fetch(`http://localhost:8080/api/browser/settings`, {
+          fetch(`http://85.239.35.171:8000/api/browser/settings`, {
             headers: { "Authorization": `Bearer ${localStorage.getItem("zeroday.token")}` }
           })
         ]);
@@ -299,10 +314,10 @@ export function ZeroBrowser({
 
   const addBookmark = useCallback(async (url: string, name?: string) => {
     if (!user) return;
-    
+
     try {
       const site = sites.find(s => s.url === url);
-      const response = await fetch("http://localhost:8080/api/browser/bookmarks", {
+      const response = await fetch("http://85.239.35.171:8000/api/browser/bookmarks", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -327,7 +342,7 @@ export function ZeroBrowser({
 
   const removeBookmark = useCallback(async (bookmarkId: string) => {
     try {
-      const response = await fetch(`http://localhost:8080/api/browser/bookmarks/${bookmarkId}`, {
+      const response = await fetch(`http://85.239.35.171:8000/api/browser/bookmarks/${bookmarkId}`, {
         method: "DELETE",
         headers: {
           "Authorization": `Bearer ${localStorage.getItem("zeroday.token")}`
@@ -345,7 +360,7 @@ export function ZeroBrowser({
 
   const updateSettings = useCallback(async (newSettings: Partial<BrowserSettings>) => {
     try {
-      const response = await fetch("http://localhost:8080/api/browser/settings", {
+      const response = await fetch("http://85.239.35.171:8000/api/browser/settings", {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -439,7 +454,7 @@ export function ZeroBrowser({
           </form>
 
           {/* Quick links */}
-          <div className="grid grid-cols-3 gap-4 mb-8">
+          <div className="grid grid-cols-4 gap-4 mb-8">
             {sites.filter(s => s.category === "system").map((site) => (
               <button
                 key={site.id}
@@ -451,6 +466,42 @@ export function ZeroBrowser({
                 <span className="text-sm text-slate-300">{site.name}</span>
               </button>
             ))}
+            {/* Messenger */}
+            <button
+              type="button"
+              onClick={() => navigateTo("zeroday://messenger")}
+              className="flex flex-col items-center gap-3 p-6 rounded-xl bg-[#1a1f29] border border-white/10 hover:border-blue-500/50 transition"
+            >
+              <span className="text-4xl">💬</span>
+              <span className="text-sm text-slate-300">Zerogram</span>
+            </button>
+            {/* Crypto Wallet */}
+            <button
+              type="button"
+              onClick={() => navigateTo("zeroday://crypto")}
+              className="flex flex-col items-center gap-3 p-6 rounded-xl bg-[#1a1f29] border border-white/10 hover:border-purple-500/50 transition"
+            >
+              <span className="text-4xl">₿</span>
+              <span className="text-sm text-slate-300">Crypto</span>
+            </button>
+            {/* Hosting */}
+            <button
+              type="button"
+              onClick={() => navigateTo("zeroday://hosting/cloudpro")}
+              className="flex flex-col items-center gap-3 p-6 rounded-xl bg-[#1a1f29] border border-white/10 hover:border-cyan-500/50 transition"
+            >
+              <span className="text-4xl">☁️</span>
+              <span className="text-sm text-slate-300">Hosting</span>
+            </button>
+            {/* ISP */}
+            <button
+              type="button"
+              onClick={() => navigateTo("zeroday://isp/freenet")}
+              className="flex flex-col items-center gap-3 p-6 rounded-xl bg-[#1a1f29] border border-white/10 hover:border-green-500/50 transition"
+            >
+              <span className="text-4xl">📡</span>
+              <span className="text-sm text-slate-300">Internet</span>
+            </button>
           </div>
 
           {/* Bookmarks */}
@@ -646,6 +697,114 @@ export function ZeroBrowser({
           >
             {lang === "ru" ? "На главную" : "Go Home"}
           </button>
+        </div>
+      );
+    }
+
+    if (activeTab?.url === "zeroday://messenger") {
+      return (
+        <div className="h-full">
+          <MessengerWeb />
+        </div>
+      );
+    }
+
+    if (activeTab?.url === "zeroday://crypto") {
+      return (
+        <div className="h-full overflow-y-auto">
+          <CryptoWalletSite />
+        </div>
+      );
+    }
+
+    // Hosting sites
+    if (activeTab?.url.startsWith("zeroday://hosting/")) {
+      const hostingId = activeTab.url.split("/")[2];
+      const hosting = hostingSites[hostingId as keyof typeof hostingSites];
+      if (hosting) {
+        return (
+          <div className="h-full overflow-y-auto">
+            <HostingSite {...hosting} />
+          </div>
+        );
+      }
+    }
+
+    // ISP sites
+    if (activeTab?.url.startsWith("zeroday://isp/")) {
+      const ispId = activeTab.url.split("/")[2];
+      const isp = ispSites[ispId as keyof typeof ispSites];
+      if (isp) {
+        return (
+          <div className="h-full overflow-y-auto">
+            <ISPSite {...isp} />
+          </div>
+        );
+      }
+    }
+
+    // Real search - redirect to external search engine
+    if (activeTab?.url.startsWith("zeroday://search")) {
+      const urlParams = new URLSearchParams(activeTab.url.replace("zeroday://search?", ""));
+      const query = urlParams.get("q") || "";
+      
+      if (query) {
+        // Open external search in new tab/window simulation
+        return (
+          <div className="flex flex-col items-center justify-center h-full p-8">
+            <div className="text-center mb-8">
+              <h2 className="text-2xl font-bold text-white mb-4">
+                {lang === "ru" ? "Поиск: " : "Search: "}"{query}"
+              </h2>
+              <p className="text-slate-400 mb-6">
+                {lang === "ru" 
+                  ? "Открываем результаты поиска во внешней поисковой системе..." 
+                  : "Opening search results in external search engine..."}
+              </p>
+              <a
+                href={`https://www.google.com/search?q=${encodeURIComponent(query)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 px-6 py-3 bg-[#ff7139] hover:bg-[#ff5a2a] text-white rounded-lg font-medium transition"
+              >
+                <ExternalLink className="w-4 h-4" />
+                {lang === "ru" ? "Открыть в Google" : "Open in Google"}
+              </a>
+            </div>
+            <div className="text-slate-500 text-sm">
+              {lang === "ru" 
+                ? "Примечание: В реальной игре поиск будет работать внутри браузера" 
+                : "Note: In the actual game, search will work inside the browser"}
+            </div>
+          </div>
+        );
+      }
+      
+      // Search page without query
+      return (
+        <div className="flex flex-col items-center justify-center h-full p-8">
+          <h1 className="text-4xl font-bold text-white mb-8">
+            <span className="text-[#ff7139]">Zero</span>Search
+          </h1>
+          <form onSubmit={handleSearch} className="w-full max-w-2xl">
+            <div className="flex items-center bg-[#1a1f29] rounded-full border border-white/10 focus-within:border-[#ff7139]/50 transition">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={lang === "ru" ? "Введите запрос..." : "Enter search query..."}
+                className="flex-1 bg-transparent px-6 py-4 text-white placeholder-slate-500 outline-none"
+              />
+              <button
+                type="submit"
+                className="m-1 px-6 py-3 bg-[#ff7139] hover:bg-[#ff5a2a] text-white rounded-full font-medium transition"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </button>
+            </div>
+          </form>
         </div>
       );
     }
