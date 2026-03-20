@@ -9,7 +9,7 @@ use sqlx::PgPool;
 use std::env;
 use std::path::Path;
 use uuid::Uuid;
-use zeroday_backend::{auth, db, websocket};
+use zeroday_backend::{auth, db, websocket, fs_online};
 
 #[derive(Clone)]
 struct AppState {
@@ -187,9 +187,16 @@ fn bearer_token(req: &HttpRequest) -> Option<&str> {
     header.strip_prefix("Bearer ")
 }
 
-fn user_id_from_request(req: &HttpRequest, jwt_secret: &str) -> anyhow::Result<String> {
-    let token = bearer_token(req).ok_or_else(|| anyhow::anyhow!("Unauthorized"))?;
+/// Извлекает user_id (String) из JWT токена в запросе
+fn user_id_from_request(req: &HttpRequest, jwt_secret: &str) -> Result<String, actix_web::Error> {
+    use actix_web::error::ErrorUnauthorized;
+    use zeroday_backend::auth;
+
+    let token = bearer_token(req)
+        .ok_or_else(|| ErrorUnauthorized("Missing Authorization header"))?;
+
     auth::decode_user_id_from_jwt(token, jwt_secret)
+        .map_err(|_| ErrorUnauthorized("Invalid JWT token"))
 }
 
 async fn register_http(state: web::Data<AppState>, payload: web::Json<RegisterPayload>) -> impl Responder {
@@ -872,6 +879,86 @@ async fn get_thread_http(
     HttpResponse::Ok().json(serde_json::json!({ "ok": true, "thread": dto }))
 }
 
+// ==================== File System HTTP Handlers ====================
+
+async fn fs_list_http(
+    pool: web::Data<PgPool>,
+    req: HttpRequest,
+    state: web::Data<AppState>,
+    query: web::Query<fs_online::FsListQuery>,
+) -> impl Responder {
+    let user_id = match user_id_from_request(&req, &state.jwt_secret) {
+        Ok(id) => id,
+        Err(e) => return HttpResponse::Unauthorized().json(serde_json::json!({ "ok": false, "error": e.to_string() }))
+    };
+    fs_online::fs_list(pool, &user_id, query).await
+}
+
+async fn fs_create_http(
+    pool: web::Data<PgPool>,
+    req: HttpRequest,
+    state: web::Data<AppState>,
+    payload: web::Json<fs_online::FsCreateRequest>,
+) -> impl Responder {
+    let user_id = match user_id_from_request(&req, &state.jwt_secret) {
+        Ok(id) => id,
+        Err(e) => return HttpResponse::Unauthorized().json(serde_json::json!({ "ok": false, "error": e.to_string() }))
+    };
+    fs_online::fs_create(pool, &user_id, payload).await
+}
+
+async fn fs_delete_http(
+    pool: web::Data<PgPool>,
+    req: HttpRequest,
+    state: web::Data<AppState>,
+    payload: web::Json<fs_online::FsDeleteRequest>,
+) -> impl Responder {
+    let user_id = match user_id_from_request(&req, &state.jwt_secret) {
+        Ok(id) => id,
+        Err(e) => return HttpResponse::Unauthorized().json(serde_json::json!({ "ok": false, "error": e.to_string() }))
+    };
+    fs_online::fs_delete(pool, &user_id, payload).await
+}
+
+async fn fs_move_http(
+    pool: web::Data<PgPool>,
+    req: HttpRequest,
+    state: web::Data<AppState>,
+    payload: web::Json<fs_online::FsMoveRequest>,
+) -> impl Responder {
+    let user_id = match user_id_from_request(&req, &state.jwt_secret) {
+        Ok(id) => id,
+        Err(e) => return HttpResponse::Unauthorized().json(serde_json::json!({ "ok": false, "error": e.to_string() }))
+    };
+    fs_online::fs_move(pool, &user_id, payload).await
+}
+
+async fn fs_read_http(
+    pool: web::Data<PgPool>,
+    req: HttpRequest,
+    state: web::Data<AppState>,
+    path: web::Path<String>,
+) -> impl Responder {
+    let user_id = match user_id_from_request(&req, &state.jwt_secret) {
+        Ok(id) => id,
+        Err(_e) => return HttpResponse::Unauthorized().finish()
+    };
+    fs_online::fs_read_text(pool, &user_id, path).await
+}
+
+async fn fs_write_http(
+    pool: web::Data<PgPool>,
+    req: HttpRequest,
+    state: web::Data<AppState>,
+    payload: web::Json<fs_online::FsCreateRequest>,
+) -> impl Responder {
+    let user_id = match user_id_from_request(&req, &state.jwt_secret) {
+        Ok(id) => id,
+        Err(e) => return HttpResponse::Unauthorized().json(serde_json::json!({ "ok": false, "error": e.to_string() }))
+    };
+    fs_online::fs_write_text(pool, &user_id, payload).await
+}
+
 async fn send_message_http(
     state: web::Data<AppState>,
     req: HttpRequest,
@@ -1038,6 +1125,13 @@ async fn main() -> anyhow::Result<()> {
             .route("/marketplace/lots/{lot_id}/request", web::post().to(request_deal_http))
             .route("/marketplace/lots/{lot_id}/thread", web::get().to(get_thread_http))
             .route("/marketplace/lots/{lot_id}/messages", web::post().to(send_message_http))
+            // Online File System API (с JWT аутентификацией)
+            .route("/api/fs/list", web::get().to(fs_list_http))
+            .route("/api/fs/create", web::post().to(fs_create_http))
+            .route("/api/fs/delete", web::post().to(fs_delete_http))
+            .route("/api/fs/move", web::post().to(fs_move_http))
+            .route("/api/fs/read/{path:.*}", web::get().to(fs_read_http))
+            .route("/api/fs/write", web::post().to(fs_write_http))
     })
     .bind((http_host.as_str(), http_port))?
     .run();

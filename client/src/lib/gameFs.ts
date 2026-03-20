@@ -17,8 +17,51 @@ export type FsDiskUsage = {
 };
 
 const STORAGE_USER_KEY = "zeroday.user";
+const STORAGE_JWT_KEY = "zeroday.jwt";
 
+/** Получает JWT токен из localStorage */
+function getJwtToken(): string | null {
+  try {
+    return localStorage.getItem(STORAGE_JWT_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Получает userScope для идентификации пользователя.
+ * Приоритет:
+ * 1. JWT токен (безопасно, user_id из claims)
+ * 2. localStorage (fallback для совместимости)
+ * 3. "default"
+ */
 function getUserScope(): string {
+  // Пытаемся получить user_id из JWT токена
+  const token = getJwtToken();
+  if (token) {
+    try {
+      // Декодируем JWT (payload без проверки подписи - это делает Tauri)
+      const base64Url = token.split('.')[1];
+      if (base64Url) {
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const jsonPayload = decodeURIComponent(
+          atob(base64)
+            .split('')
+            .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+            .join('')
+        );
+        const claims = JSON.parse(jsonPayload) as { sub?: string; user_id?: string };
+        const userId = claims.sub || claims.user_id;
+        if (userId) {
+          return `user_${userId}`;
+        }
+      }
+    } catch {
+      // JWT декодирование не удалось, fallback
+    }
+  }
+
+  // Fallback: localStorage (старая логика)
   try {
     const raw = localStorage.getItem(STORAGE_USER_KEY);
     if (!raw) return "default";
@@ -36,6 +79,15 @@ export async function initGameFs(): Promise<void> {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     throw new Error(`fs_init failed: ${msg}`);
+  }
+}
+
+export async function createFullFsStructure(): Promise<void> {
+  try {
+    await invoke("fs_create_full_structure", { userScope: getUserScope() });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`fs_create_full_structure failed: ${msg}`);
   }
 }
 

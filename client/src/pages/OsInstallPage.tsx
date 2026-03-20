@@ -6,6 +6,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useGameConfig } from "../hooks/useGameConfig";
 import type { GameLanguage } from "../lib/gameConfig";
 import { getInstallWizardCopy } from "../lib/i18n/installWizard";
+import { createFullFsStructure } from "../lib/gameFs";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const USERNAME_REGEX = /^[a-z0-9_]{3,20}$/;
@@ -247,6 +248,15 @@ export function OsInstallPage() {
       setDiskStatusIdx(i);
       await sleep(delays[i] ?? 1200);
     }
+    
+    // Создаём реальную структуру файловой системы
+    try {
+      await createFullFsStructure();
+    } catch (e) {
+      // Игнорируем ошибки, продолжаем установку
+      console.error("Failed to create FS structure:", e);
+    }
+    
     setBusy(false);
     setStep("account");
   }, [keyboardLayout]);
@@ -433,27 +443,70 @@ export function OsInstallPage() {
 
       <div className="flex min-h-0 flex-1">
         <aside
-          className={`relative hidden w-[38%] max-w-md flex-col justify-between border-r border-white/10 bg-gradient-to-br from-[#0f766e]/30 via-[#1e1b4b]/40 to-[#0c0a09] p-8 lg:flex transition-opacity duration-700 ${
+          className={`relative hidden w-[42%] max-w-lg flex-col justify-between border-r border-white/10 bg-gradient-to-br from-[#0f766e]/40 via-[#1e1b4b]/50 to-[#0c0a09] p-10 lg:flex transition-opacity duration-700 ${
             showAside ? "opacity-100" : "opacity-0"
           } ${canInteract ? "pointer-events-auto" : "pointer-events-none"}`}
         >
-          <div>
-            <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-teal-300/80">
-              ZeroDay GNU/Linux 0.1
-            </div>
-            <h1 className="text-2xl font-bold leading-tight text-white drop-shadow-md">{slides[slideIdx]!.title}</h1>
-            <p className="mt-4 text-sm leading-relaxed text-slate-300/90">{slides[slideIdx]!.body}</p>
+          {/* Decorative background elements */}
+          <div className="pointer-events-none absolute inset-0 overflow-hidden">
+            <div className="absolute -left-10 -top-10 h-40 w-40 rounded-full bg-teal-500/10 blur-3xl" />
+            <div className="absolute -right-10 -bottom-10 h-40 w-40 rounded-full bg-indigo-500/10 blur-3xl" />
+            <div className="absolute left-1/2 top-1/3 h-32 w-32 -translate-x-1/2 rounded-full bg-cyan-500/5 blur-2xl" />
           </div>
-          <div className="flex gap-1.5">
-            {slides.map((_, i) => (
-              <button
-                key={i}
-                type="button"
-                aria-label={`slide ${i + 1}`}
-                onClick={() => setSlideIdx(i)}
-                className={`h-1.5 flex-1 rounded-full transition ${i === slideIdx ? "bg-cyan-400" : "bg-white/20"}`}
+
+          <div className="relative z-10">
+            <div className="mb-3 flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-teal-500 to-cyan-600 text-lg font-black text-white shadow-lg">
+                Z
+              </div>
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-[0.3em] text-teal-300/90">
+                  ZeroDay GNU/Linux
+                </div>
+                <div className="text-xs font-medium text-cyan-200/80">Interactive Installer v0.1</div>
+              </div>
+            </div>
+            <div className="mt-6 h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+              <div
+                className="h-full bg-gradient-to-r from-teal-400 to-cyan-400 transition-all duration-500"
+                style={{ width: `${((slideIdx + 1) / slides.length) * 100}%` }}
               />
-            ))}
+            </div>
+            <h1 className="mt-5 text-3xl font-bold leading-tight text-white drop-shadow-lg">{slides[slideIdx]!.title}</h1>
+            <p className="mt-5 text-base leading-relaxed text-slate-200/95">{slides[slideIdx]!.body}</p>
+            
+            {/* Feature badges */}
+            <div className="mt-8 flex flex-wrap gap-2">
+              <span className="rounded-full border border-teal-500/30 bg-teal-500/10 px-3 py-1 text-xs font-medium text-teal-200">
+                {uiLang === "ru" ? "Безопасность" : "Security"}
+              </span>
+              <span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 text-xs font-medium text-cyan-200">
+                {uiLang === "ru" ? "Производительность" : "Performance"}
+              </span>
+              <span className="rounded-full border border-indigo-500/30 bg-indigo-500/10 px-3 py-1 text-xs font-medium text-indigo-200">
+                {uiLang === "ru" ? "Стабильность" : "Stability"}
+              </span>
+            </div>
+          </div>
+
+          <div className="relative z-10">
+            <div className="mb-4 flex gap-2">
+              {slides.map((_, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  aria-label={`slide ${i + 1}`}
+                  onClick={() => setSlideIdx(i)}
+                  className={`h-2 flex-1 rounded-full transition-all ${
+                    i === slideIdx ? "bg-gradient-to-r from-teal-400 to-cyan-400 scale-105" : "bg-white/20 hover:bg-white/30"
+                  }`}
+                />
+              ))}
+            </div>
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span>{uiLang === "ru" ? "Слайд" : "Slide"} {slideIdx + 1} / {slides.length}</span>
+              <span className="font-mono">{new Date().toLocaleTimeString(uiLang === "ru" ? "ru-RU" : "en-US", { hour: "2-digit", minute: "2-digit" })}</span>
+            </div>
           </div>
         </aside>
 
@@ -462,7 +515,7 @@ export function OsInstallPage() {
             showBody ? "opacity-100" : "opacity-0"
           } ${canInteract ? "pointer-events-auto" : "pointer-events-none"}`}
         >
-          <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col">
+          <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col">
             <div className="mb-6 flex items-center justify-between gap-4">
               <div>
                 <h2 className="text-xl font-semibold text-white">{copy.title}</h2>
@@ -470,23 +523,38 @@ export function OsInstallPage() {
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto rounded-xl border border-white/10 bg-[#1e2229] p-6 shadow-inner">
+            <div className="flex-1 overflow-y-auto rounded-xl border border-white/10 bg-[#1e2229] p-8 shadow-inner">
               {step === "welcome" ? (
                 <div className="space-y-6">
-                  <div className="flex items-center gap-4">
-                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-teal-500 to-indigo-600 text-2xl font-black text-white shadow-lg">
+                  <div className="flex items-start gap-6">
+                    <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-teal-500 to-indigo-600 text-3xl font-black text-white shadow-lg">
                       Z
                     </div>
-                    <div>
-                      <p className="text-lg font-medium text-white">{copy.welcomeTitle}</p>
-                      <p className="text-sm text-slate-400">{copy.welcomeLead}</p>
+                    <div className="flex-1">
+                      <p className="text-xl font-semibold text-white">{copy.welcomeTitle}</p>
+                      <p className="mt-2 text-base leading-relaxed text-slate-300">{copy.welcomeLead}</p>
                     </div>
                   </div>
-                  <ul className="list-inside list-disc space-y-2 text-sm text-slate-300">
-                    <li>{copy.welcomeBullet1}</li>
-                    <li>{copy.welcomeBullet2}</li>
-                    <li>{copy.welcomeBullet3}</li>
-                  </ul>
+                  <div className="rounded-xl border border-white/10 bg-white/5 p-5">
+                    <ul className="grid gap-3 sm:grid-cols-2">
+                      <li className="flex items-start gap-3 text-sm text-slate-300">
+                        <span className="mt-0.5 text-cyan-400">✓</span>
+                        <span>{copy.welcomeBullet1}</span>
+                      </li>
+                      <li className="flex items-start gap-3 text-sm text-slate-300">
+                        <span className="mt-0.5 text-cyan-400">✓</span>
+                        <span>{copy.welcomeBullet2}</span>
+                      </li>
+                      <li className="flex items-start gap-3 text-sm text-slate-300">
+                        <span className="mt-0.5 text-cyan-400">✓</span>
+                        <span>{copy.welcomeBullet3}</span>
+                      </li>
+                      <li className="flex items-start gap-3 text-sm text-slate-300">
+                        <span className="mt-0.5 text-cyan-400">✓</span>
+                        <span>{uiLang === "ru" ? "Минимальные системные требования: 2 ядра CPU, 4 GB RAM, 32 GB диска" : "Minimum requirements: 2-core CPU, 4 GB RAM, 32 GB disk"}</span>
+                      </li>
+                    </ul>
+                  </div>
                   {error ? <p className="text-sm text-red-400">{error}</p> : null}
                 </div>
               ) : null}
@@ -573,35 +641,62 @@ export function OsInstallPage() {
               ) : null}
 
               {step === "disk" ? (
-                <div className="space-y-4">
-                  <p className="text-white">{copy.diskTitle}</p>
-                  <p className="text-sm text-slate-400">{copy.diskLead}</p>
-                  <div className="rounded-xl border border-white/10 bg-black/30 p-4">
-                    <div className="mb-2 flex h-8 overflow-hidden rounded-md ring-1 ring-white/10">
-                      <div className="flex w-[10%] items-center justify-center bg-amber-600/85 text-[9px] font-bold text-black/80">
+                <div className="space-y-5">
+                  <div>
+                    <p className="text-white">{copy.diskTitle}</p>
+                    <p className="text-sm text-slate-400">{copy.diskLead}</p>
+                  </div>
+                  
+                  {/* Визуализация разделов диска */}
+                  <div className="rounded-xl border border-white/10 bg-gradient-to-br from-black/40 to-black/20 p-5">
+                    {/* Графическая полоса разделов */}
+                    <div className="mb-4 flex h-10 overflow-hidden rounded-lg ring-1 ring-white/20">
+                      <div className="flex w-[10%] items-center justify-center bg-amber-600/90 text-[8px] font-bold text-white" title="EFI Boot">
                         {copy.diskBarEfi}
                       </div>
-                      <div className="flex flex-1 items-center justify-center bg-teal-600/75 text-[9px] font-medium text-white/90">
+                      <div className="flex flex-1 items-center justify-center bg-teal-600/85 text-[9px] font-medium text-white" title="Root filesystem">
                         {copy.diskBarRoot}
                       </div>
-                      <div className="flex w-[14%] items-center justify-center bg-slate-600/85 text-[9px] text-slate-200">
+                      <div className="flex w-[12%] items-center justify-center bg-slate-600/90 text-[8px] text-slate-100" title="Swap">
                         {copy.diskBarSwap}
                       </div>
+                      <div className="flex w-[20%] items-center justify-center bg-indigo-600/85 text-[9px] font-medium text-white" title="Home directory">
+                        {copy.diskBarHome}
+                      </div>
                     </div>
-                    <div className="space-y-1.5 font-mono text-xs text-slate-400">
-                      <div>{copy.diskRow1}</div>
-                      <div>{copy.diskRow2}</div>
-                      <div>{copy.diskRow3}</div>
+                    
+                    {/* Детали разделов */}
+                    <div className="space-y-2 font-mono text-xs">
+                      <div className="flex items-center gap-3 rounded bg-amber-600/10 px-3 py-2">
+                        <span className="h-2 w-2 shrink-0 rounded-full bg-amber-500" />
+                        <span className="text-slate-300">{copy.diskRow1}</span>
+                      </div>
+                      <div className="flex items-center gap-3 rounded bg-teal-600/10 px-3 py-2">
+                        <span className="h-2 w-2 shrink-0 rounded-full bg-teal-500" />
+                        <span className="text-slate-300">{copy.diskRow2}</span>
+                      </div>
+                      <div className="flex items-center gap-3 rounded bg-slate-600/10 px-3 py-2">
+                        <span className="h-2 w-2 shrink-0 rounded-full bg-slate-500" />
+                        <span className="text-slate-300">{copy.diskRow3}</span>
+                      </div>
+                      <div className="flex items-center gap-3 rounded bg-indigo-600/10 px-3 py-2">
+                        <span className="h-2 w-2 shrink-0 rounded-full bg-indigo-500" />
+                        <span className="text-slate-300">{copy.diskRow4}</span>
+                      </div>
                     </div>
-                    <p className="mt-3 text-sm leading-relaxed text-slate-500">{copy.diskFlavor}</p>
+                    
+                    <p className="mt-4 text-sm leading-relaxed text-slate-500">{copy.diskFlavor}</p>
                   </div>
-                  <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-white/10 p-4">
-                    <input type="radio" checked={diskChoice === "erase"} readOnly className="mt-1 accent-cyan-500" />
-                    <span>
+                  
+                  {/* Опция установки */}
+                  <label className="flex cursor-pointer items-start gap-4 rounded-lg border border-cyan-500/30 bg-cyan-500/5 p-4 transition hover:bg-cyan-500/10">
+                    <input type="radio" checked={diskChoice === "erase"} readOnly className="mt-1 h-4 w-4 accent-cyan-500" />
+                    <span className="flex-1">
                       <span className="font-medium text-white">{copy.diskOptionTitle}</span>
                       <span className="mt-1 block text-sm text-slate-400">{copy.diskOptionDesc}</span>
                     </span>
                   </label>
+                  
                   <p className="text-sm text-slate-500">{copy.diskNote}</p>
                 </div>
               ) : null}
@@ -617,48 +712,102 @@ export function OsInstallPage() {
               ) : null}
 
               {step === "account" ? (
-                <div className="space-y-4">
-                  <p className="text-white">{copy.accountTitle}</p>
-                  <p className="text-sm text-slate-400">{copy.accountLead}</p>
-                  <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-5">
+                  <div>
+                    <p className="text-white">{copy.accountTitle}</p>
+                    <p className="text-sm text-slate-400">{copy.accountLead}</p>
+                  </div>
+                  
+                  {/* Requirements info box */}
+                  <div className="rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-4">
+                    <div className="mb-2 flex items-center gap-2 text-sm font-medium text-cyan-300">
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      {uiLang === "ru" ? "Требования к учётной записи" : "Account requirements"}
+                    </div>
+                    <ul className="grid gap-1.5 text-xs text-slate-300 sm:grid-cols-2">
+                      <li className="flex items-start gap-2">
+                        <span className="text-cyan-400">•</span>
+                        <span>{uiLang === "ru" ? "Имя: 3-20 символов, только a-z, 0-9, _" : "Username: 3-20 chars, a-z, 0-9, _ only"}</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-cyan-400">•</span>
+                        <span>{uiLang === "ru" ? "Пароль: минимум 8 символов" : "Password: at least 8 characters"}</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-cyan-400">•</span>
+                        <span>{uiLang === "ru" ? "Email: корректный формат" : "Email: valid format"}</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-cyan-400">•</span>
+                        <span>{uiLang === "ru" ? "Подтверждение пароля должно совпадать" : "Password confirmation must match"}</span>
+                      </li>
+                    </ul>
+                  </div>
+
+                  <div className="grid gap-4 sm:grid-cols-2">
                     <label className="block text-sm text-slate-400 sm:col-span-2">
                       {copy.username}
                       <input
-                        className="mt-1 w-full rounded-lg border border-white/15 bg-[#2a3039] px-4 py-2.5 text-white outline-none focus:border-cyan-500/50"
+                        className={`mt-1 w-full rounded-lg border bg-[#2a3039] px-4 py-2.5 text-white outline-none focus:border-cyan-500/50 ${
+                          username && !USERNAME_REGEX.test(username) ? "border-red-500/50" : "border-white/15"
+                        }`}
                         value={username}
                         onChange={(e) => setUsername(e.target.value.toLowerCase())}
+                        placeholder={uiLang === "ru" ? "например: agent_zero" : "e.g. agent_zero"}
                         autoComplete="username"
                       />
+                      {username && !USERNAME_REGEX.test(username) && (
+                        <p className="mt-1 text-xs text-red-400">{uiLang === "ru" ? "3-20 символов, a-z, 0-9, _" : "3-20 chars, a-z, 0-9, _"}</p>
+                      )}
                     </label>
                     <label className="block text-sm text-slate-400 sm:col-span-2">
                       {copy.email}
                       <input
                         type="email"
-                        className="mt-1 w-full rounded-lg border border-white/15 bg-[#2a3039] px-4 py-2.5 text-white outline-none focus:border-cyan-500/50"
+                        className={`mt-1 w-full rounded-lg border bg-[#2a3039] px-4 py-2.5 text-white outline-none focus:border-cyan-500/50 ${
+                          email && !EMAIL_REGEX.test(email) ? "border-red-500/50" : "border-white/15"
+                        }`}
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
+                        placeholder="agent@zeroday.net"
                         autoComplete="email"
                       />
+                      {email && !EMAIL_REGEX.test(email) && (
+                        <p className="mt-1 text-xs text-red-400">{uiLang === "ru" ? "Некорректный email" : "Invalid email"}</p>
+                      )}
                     </label>
                     <label className="block text-sm text-slate-400">
                       {copy.password}
                       <input
                         type="password"
-                        className="mt-1 w-full rounded-lg border border-white/15 bg-[#2a3039] px-4 py-2.5 text-white outline-none focus:border-cyan-500/50"
+                        className={`mt-1 w-full rounded-lg border bg-[#2a3039] px-4 py-2.5 text-white outline-none focus:border-cyan-500/50 ${
+                          password && password.length < 8 ? "border-red-500/50" : "border-white/15"
+                        }`}
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
+                        placeholder={uiLang === "ru" ? "Минимум 8 символов" : "Minimum 8 characters"}
                         autoComplete="new-password"
                       />
+                      {password && password.length > 0 && password.length < 8 && (
+                        <p className="mt-1 text-xs text-red-400">{uiLang === "ru" ? "Минимум 8 символов" : "Minimum 8 characters"}</p>
+                      )}
                     </label>
                     <label className="block text-sm text-slate-400">
                       {copy.confirmPassword}
                       <input
                         type="password"
-                        className="mt-1 w-full rounded-lg border border-white/15 bg-[#2a3039] px-4 py-2.5 text-white outline-none focus:border-cyan-500/50"
+                        className={`mt-1 w-full rounded-lg border bg-[#2a3039] px-4 py-2.5 text-white outline-none focus:border-cyan-500/50 ${
+                          confirmPass && password !== confirmPass ? "border-red-500/50" : "border-white/15"
+                        }`}
                         value={confirmPass}
                         onChange={(e) => setConfirmPass(e.target.value)}
                         autoComplete="new-password"
                       />
+                      {confirmPass && password !== confirmPass && (
+                        <p className="mt-1 text-xs text-red-400">{uiLang === "ru" ? "Пароли не совпадают" : "Passwords do not match"}</p>
+                      )}
                     </label>
                   </div>
                   {wsState !== "open" ? <p className="text-sm text-amber-400/90">{copy.wsWait}</p> : null}

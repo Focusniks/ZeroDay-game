@@ -183,6 +183,50 @@ pub fn fs_init(userScope: Option<String>) -> Result<(), String> {
   Ok(())
 }
 
+// Создаёт полную структуру файловой системы Linux (симуляция через пустые папки)
+#[tauri::command]
+#[allow(non_snake_case)]
+pub fn fs_create_full_structure(userScope: Option<String>) -> Result<(), String> {
+  let base = files_root(userScope)?;
+  
+  // Linux root directories
+  let dirs = [
+    "bin", "boot", "dev", "etc", "home", "home/user", "lib", "lib64",
+    "media", "mnt", "opt", "proc", "root", "run", "sbin", "srv",
+    "sys", "tmp", "usr", "usr/bin", "usr/lib", "usr/local", "usr/share",
+    "var", "var/log", "var/cache", "var/tmp",
+    // User directories
+    "Desktop", "Documents", "Downloads", "Music", "Pictures", "Videos",
+    "Notes", "Scripts", "Photos", "Wallpapers", "Trash"
+  ];
+  
+  for dir in &dirs {
+    let path = base.join(dir);
+    fs::create_dir_all(&path).map_err(|e| e.to_string())?;
+  }
+  
+  // Создаём несколько системных файлов-заглушек (пустые файлы для симуляции)
+  let files = [
+    ("etc/fstab", "# File system table\n/dev/vda2  /  ext4  defaults  0 1"),
+    ("etc/hostname", "zeroday-pc"),
+    ("etc/hosts", "127.0.0.1  localhost\n127.0.1.1  zeroday-pc"),
+    ("etc/passwd", "root:x:0:0:root:/root:/bin/bash\nuser:x:1000:1000:User:/home/user:/bin/bash"),
+    ("etc/os-release", "NAME=\"ZeroDay OS\"\nVERSION=\"0.1\"\nID=zeroday\nPRETTY_NAME=\"ZeroDay GNU/Linux 0.1\""),
+    ("proc/version", "Linux version 0.1.0 (zeroday)"),
+    ("sys/kernel/hostname", "zeroday-pc"),
+  ];
+  
+  for (file_path, content) in &files {
+    let path = base.join(file_path);
+    if let Some(parent) = path.parent() {
+      fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    fs::write(&path, *content).map_err(|e| e.to_string())?;
+  }
+  
+  Ok(())
+}
+
 #[tauri::command]
 #[allow(non_snake_case)]
 pub fn fs_root_path(userScope: Option<String>) -> Result<String, String> {

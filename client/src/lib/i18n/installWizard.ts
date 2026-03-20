@@ -11,6 +11,7 @@ export type InstallWizardCopy = {
   welcomeBullet1: string;
   welcomeBullet2: string;
   welcomeBullet3: string;
+  welcomeBullet4: string;
   welcomeHaveAccountCta: string;
   keyboardTitle: string;
   keyboardEn: string;
@@ -23,9 +24,11 @@ export type InstallWizardCopy = {
   diskBarEfi: string;
   diskBarRoot: string;
   diskBarSwap: string;
+  diskBarHome: string;
   diskRow1: string;
   diskRow2: string;
   diskRow3: string;
+  diskRow4: string;
   diskFlavor: string;
   diskOptionTitle: string;
   diskOptionDesc: string;
@@ -88,8 +91,9 @@ const ru: InstallWizardCopy = {
   welcomeLead:
     "Этот мастер поможет выполнить установку системы, настроить базовые параметры и создать первую учётную запись администратора.",
   welcomeBullet1: "После завершения установки будет доступен рабочий стол с терминалом и системными инструментами",
-  welcomeBullet2: "Профиль и язык интерфейса хранятся локально",
+  welcomeBullet2: "Профиль и язык интерфейса сохраняются локально",
   welcomeBullet3: "Вы сможете сразу войти под учётной записью администратора",
+  welcomeBullet4: "Минимальные системные требования: 2 ядра CPU, 4 GB RAM, 32 GB диска",
   welcomeHaveAccountCta: "Есть аккаунт? Войти",
   keyboardTitle: "Раскладка клавиатуры",
   keyboardEn: "English (US) — интерфейс на английском",
@@ -103,11 +107,13 @@ const ru: InstallWizardCopy = {
   diskBarEfi: "EFI",
   diskBarRoot: "/",
   diskBarSwap: "swap",
-  diskRow1: "/dev/vda1 — 512 MiB — EFI System Partition",
-  diskRow2: "/dev/vda2 — основной том — ext4, смонтирован как /",
+  diskBarHome: "/home",
+  diskRow1: "/dev/vda1 — 512 MiB — EFI System Partition (boot)",
+  diskRow2: "/dev/vda2 — 25 GB — основной том ext4, смонтирован как /",
   diskRow3: "/dev/vda3 — 2 GiB — раздел подкачки (swap)",
+  diskRow4: "/dev/vda4 — 6.5 GB — домашний том /home (ext4)",
   diskFlavor:
-    "Таблица разделов GPT. Для надёжности включён отдельный загрузочный раздел; корневая файловая система с журналированием.",
+    "Таблица разделов GPT. Для надёжности включён отдельный загрузочный раздел; корневая файловая система с журналированием. LVM не используется для упрощения.",
   diskOptionTitle: "Стереть виртуальный диск и установить ZeroDay",
   diskOptionDesc: "Рекомендуется для первой установки: чистая конфигурация песочницы.",
   diskNote:
@@ -195,6 +201,7 @@ const en: InstallWizardCopy = {
   welcomeBullet1: "After installation you get a desktop, terminal, and core system utilities",
   welcomeBullet2: "Profile and UI language are saved locally",
   welcomeBullet3: "You can sign in immediately with the administrator account",
+  welcomeBullet4: "Minimum requirements: 2-core CPU, 4 GB RAM, 32 GB disk",
   welcomeHaveAccountCta: "I have an account — sign in",
   keyboardTitle: "Keyboard layout",
   keyboardEn: "English (US) — English UI",
@@ -208,11 +215,13 @@ const en: InstallWizardCopy = {
   diskBarEfi: "EFI",
   diskBarRoot: "/",
   diskBarSwap: "swap",
-  diskRow1: "/dev/vda1 — 512 MiB — EFI System Partition",
-  diskRow2: "/dev/vda2 — main volume — ext4 mounted as /",
-  diskRow3: "/dev/vda3 — 2 GiB — swap",
+  diskBarHome: "/home",
+  diskRow1: "/dev/vda1 — 512 MiB — EFI System Partition (boot)",
+  diskRow2: "/dev/vda2 — 25 GB — main volume ext4 mounted as /",
+  diskRow3: "/dev/vda3 — 2 GiB — swap partition",
+  diskRow4: "/dev/vda4 — 6.5 GB — home volume /home (ext4)",
   diskFlavor:
-    "GPT partition table. Dedicated boot partition; journaled root filesystem for resilience.",
+    "GPT partition table. Dedicated boot partition; journaled root filesystem for resilience. No LVM for simplicity.",
   diskOptionTitle: "Erase virtual disk and install ZeroDay",
   diskOptionDesc: "Recommended for a first install: clean sandbox layout.",
   diskNote:

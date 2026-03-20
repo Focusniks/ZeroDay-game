@@ -121,10 +121,12 @@ export function AuthProvider({
       setUser(message.user);
       localStorage.setItem(STORAGE_TOKEN_KEY, message.token);
       localStorage.setItem(STORAGE_USER_KEY, JSON.stringify(message.user));
+      // Сохраняем JWT токен для использования в Tauri FS
+      localStorage.setItem("zeroday.jwt", message.token);
 
       // Disable session boot overlay after auth success to avoid flashing loading console.
       setSystemLoading(false);
-      suppressNextSystemLoadingRef.current = false;
+      suppressNextSystemLoadingRef.current = true;
 
       pendingRequestRef.current?.resolve();
       pendingRequestRef.current = null;

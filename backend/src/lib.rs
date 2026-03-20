@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod db;
 pub mod websocket;
+pub mod fs_online;
 
 use jsonwebtoken::{DecodingKey, EncodingKey};
 
