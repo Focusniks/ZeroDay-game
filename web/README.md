@@ -1,36 +1,70 @@
-This is a [Next.js](https://nextjs.org/) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+# ZeroDay Game - Web Application
 
-## Getting Started
+Веб-приложение для игры ZeroDay: система аутентификации, торговая площадка, документация HackScript.
 
-First, run the development server:
+## Технологии
+
+- **Next.js 14** — React фреймворк
+- **NextAuth.js** — аутентификация
+- **Prisma** — ORM для работы с БД
+- **Tailwind CSS** — стилизация
+
+## Запуск
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Откройте [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Структура
 
-This project uses [`next/font`](https://nextjs.org/docs/basic-features/font-optimization) to automatically optimize and load Inter, a custom Google Font.
+- `/src/app/docs` — документация языка HackScript
+- `/src/app/marketplace` — торговая площадка
+- `/src/app/account` — личный кабинет пользователя
+- `/src/app/api/auth` — API аутентификации
 
-## Learn More
+## HackScript
 
-To learn more about Next.js, take a look at the following resources:
+Встроенный язык программирования для игры. См. полную документацию на `/docs`.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Быстрый старт
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js/) - your feedback and contributions are welcome!
+```hack
+# Переменные
+name = "agent"
+level = 1
 
-## Deploy on Vercel
+# Условие
+if level >= 5:
+  print("experienced")
+else:
+  print("newbie")
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+# Цикл for
+for i in range(5):
+  print(i)
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/deployment) for more details.
+# Цикл while
+x = 0
+while x < 3:
+  print(x)
+  x = x + 1
+
+# Встроенные функции
+print(len("hello"))     # 5
+print(sqrt(16))         # 4
+print(max(1, 10, 3))    # 10
+print(upper("hack"))    # HACK
+```
+
+### Запуск в терминале
+
+```bash
+cd Scripts
+hackrun script.hack
+```
+
+## Лицензия
+
+Proprietary — ZeroDay Game

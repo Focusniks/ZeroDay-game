@@ -22,10 +22,12 @@ type Token =
         | "&&"
         | "||"
         | "!"
-        | "%";
+        | "%"
+        | "**";
     }
   | { type: "lparen" }
-  | { type: "rparen" };
+  | { type: "rparen" }
+  | { type: "comma" };
 
 function tokenizeExpr(expr: string): Token[] {
   const s = expr.trim();
@@ -51,9 +53,14 @@ function tokenizeExpr(expr: string): Token[] {
       i++;
       continue;
     }
+    if (c === ",") {
+      out.push({ type: "comma" });
+      i++;
+      continue;
+    }
     // Multi-char operators first.
     const two = s.slice(i, i + 2);
-    if (two === "==" || two === "!=" || two === "<=" || two === ">=" || two === "&&" || two === "||") {
+    if (two === "==" || two === "!=" || two === "<=" || two === ">=" || two === "&&" || two === "||" || two === "**") {
       out.push({ type: "op", value: two });
       i += 2;
       continue;
@@ -197,13 +204,28 @@ function evalExprRecursive(tokens: Token[], env: Record<string, string | number>
     return left;
   };
 
-  const parseAdd = (): HackValue => {
+  const parsePower = (): HackValue => {
     let left = parseMul();
+    while (true) {
+      const t = peek();
+      if (!t || t.type !== "op" || t.value !== "**") break;
+      consume();
+      const right = parseMul();
+      const lnum = toNum(left);
+      const rnum = toNum(right);
+      if (!Number.isFinite(lnum) || !Number.isFinite(rnum)) throw new Error("Numeric operator used with non-number");
+      left = Math.pow(lnum, rnum);
+    }
+    return left;
+  };
+
+  const parseAdd = (): HackValue => {
+    let left = parsePower();
     while (true) {
       const t = peek();
       if (!t || t.type !== "op" || (t.value !== "+" && t.value !== "-")) break;
       consume();
-      const right = parseMul();
+      const right = parsePower();
       if (t.value === "+") {
         if (typeof left === "string" || typeof right === "string") left = String(left) + String(right);
         else left = toNum(left) + toNum(right);
@@ -298,6 +320,8 @@ type Stmt =
   | { type: "print"; expr: string }
   | { type: "assign"; name: string; expr: string }
   | { type: "for"; varName: string; rangeExpr: string; body: Stmt[] }
+  | { type: "while"; condExpr: string; body: Stmt[] }
+  | { type: "input"; name: string; prompt?: string }
   | { type: "if"; condExpr: string; thenStmts: Stmt[]; elseStmts?: Stmt[] };
 
 function parseProgram(source: string): Stmt[] {
@@ -363,6 +387,30 @@ function parseProgram(source: string): Stmt[] {
         continue;
       }
 
+      if (trimmed.startsWith("while ")) {
+        // while <expr>:
+        const m = trimmed.match(/^while\s+(.+):$/);
+        if (!m) throw new Error("Invalid while syntax. Expected: while <cond>:");
+        const condExpr = m[1]!;
+        i++;
+
+        const bodyIndent = indentLevel + 2;
+        const body = parseBlock(bodyIndent);
+        block.push({ type: "while", condExpr, body });
+        continue;
+      }
+
+      if (trimmed.startsWith("input ")) {
+        // input <var> or input <var>, "prompt"
+        const m = trimmed.match(/^input\s+([a-zA-Z_][a-zA-Z0-9_]*)(?:\s*,\s*["'](.+)["'])?$/);
+        if (!m) throw new Error("Invalid input syntax. Expected: input var or input var, \"prompt\"");
+        const name = m[1]!;
+        const promptStr = m[2];
+        block.push({ type: "input", name, prompt: promptStr });
+        i++;
+        continue;
+      }
+
       if (trimmed.startsWith("print")) {
         const m = trimmed.match(/^print\s*(?:\((.*)\)|\s+(.+))$/);
         if (!m) throw new Error("Invalid print syntax. Expected: print(expr)");
@@ -403,6 +451,81 @@ function parseProgram(source: string): Stmt[] {
 }
 
 function evalExpr(expr: string, env: Record<string, string | number>): HackValue {
+  // Built-in functions
+  const fnCall = expr.match(/^(\w+)\((.*)\)$/s);
+  if (fnCall) {
+    const fnName = fnCall[1]!;
+    const argsStr = fnCall[2]!;
+    
+    // Parse arguments (simple comma split, works for most cases)
+    const args: string[] = [];
+    let depth = 0;
+    let current = "";
+    for (const c of argsStr) {
+      if (c === "(") depth++;
+      else if (c === ")") depth--;
+      else if (c === "," && depth === 0) {
+        args.push(current.trim());
+        current = "";
+        continue;
+      }
+      current += c;
+    }
+    if (current.trim()) args.push(current.trim());
+
+    // Built-in functions
+    if (fnName === "len") {
+      const argVal = evalExpr(args[0] || "", env);
+      if (typeof argVal === "string") return argVal.length;
+      if (typeof argVal === "number") return String(argVal).length;
+      return 0;
+    }
+    if (fnName === "str") {
+      const argVal = evalExpr(args[0] || "", env);
+      return String(argVal);
+    }
+    if (fnName === "int") {
+      const argVal = evalExpr(args[0] || "", env);
+      return typeof argVal === "number" ? Math.floor(argVal) : Number(argVal) || 0;
+    }
+    if (fnName === "float") {
+      const argVal = evalExpr(args[0] || "", env);
+      return Number(argVal) || 0;
+    }
+    if (fnName === "upper") {
+      const argVal = evalExpr(args[0] || "", env);
+      return String(argVal).toUpperCase();
+    }
+    if (fnName === "lower") {
+      const argVal = evalExpr(args[0] || "", env);
+      return String(argVal).toLowerCase();
+    }
+    if (fnName === "abs") {
+      const argVal = evalExpr(args[0] || "", env);
+      const n = typeof argVal === "number" ? argVal : Number(argVal) || 0;
+      return Math.abs(n);
+    }
+    if (fnName === "sqrt") {
+      const argVal = evalExpr(args[0] || "", env);
+      const n = typeof argVal === "number" ? argVal : Number(argVal) || 0;
+      return Math.sqrt(n);
+    }
+    if (fnName === "min") {
+      const vals = args.map(a => {
+        const v = evalExpr(a, env);
+        return typeof v === "number" ? v : Number(v) || 0;
+      });
+      return Math.min(...vals);
+    }
+    if (fnName === "max") {
+      const vals = args.map(a => {
+        const v = evalExpr(a, env);
+        return typeof v === "number" ? v : Number(v) || 0;
+      });
+      return Math.max(...vals);
+    }
+  }
+
   const tokens = tokenizeExpr(expr);
   return evalExprRecursive(tokens, env);
 }
@@ -434,15 +557,21 @@ export function runHackScript(source: string): HackRunResult {
           throw new Error("HackScript output limit exceeded");
         }
         output.push(String(v));
-      } else if (s.type === "for") {
-        const nRaw = evalExpr(s.rangeExpr, env);
-        const n = typeof nRaw === "number" ? nRaw : Number(nRaw);
-        if (!Number.isFinite(n)) throw new Error("range() must evaluate to a number");
-        if (n < 0) throw new Error("range() must be non-negative");
-        if (n > MAX_FOR_ITERATIONS) throw new Error(`range() too large (max ${MAX_FOR_ITERATIONS})`);
-        for (let k = 0; k < n; k++) {
-          env[s.varName] = k;
+      } else if (s.type === "while") {
+        let iterations = 0;
+        while (toBool(evalExpr(s.condExpr, env))) {
+          iterations++;
+          if (iterations > MAX_FOR_ITERATIONS) {
+            throw new Error(`While loop too many iterations (max ${MAX_FOR_ITERATIONS})`);
+          }
           execStmts(s.body);
+        }
+      } else if (s.type === "input") {
+        // Input is not supported in this sandboxed environment
+        // Store empty string as placeholder
+        env[s.name] = "";
+        if (s.prompt) {
+          output.push(`[Input prompt: ${s.prompt}]`);
         }
       } else if (s.type === "if") {
         const condRaw = evalExpr(s.condExpr, env);

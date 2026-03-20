@@ -12,12 +12,13 @@ import {
 export const DESKTOP_COMPUTER_CELL_KEY = "__desktop_computer__";
 export const DESKTOP_TRASH_CELL_KEY = "__desktop_trash__";
 
-const DESK_LEFT = 20;
-const DESK_TOP = 90;
-const DESK_RIGHT_PAD = 20;
-const DESK_BOTTOM_PAD = 12;
+// Left edge of the desktop icon grid (0 means icons can reach the very left corner).
+const DESK_LEFT = 0;
+const DESK_TOP = 0;
+const DESK_RIGHT_PAD = 0;
+const DESK_BOTTOM_PAD = 0;
 const TASKBAR_H = 48;
-const CELL_W = 160;
+const CELL_W = 96;
 const CELL_H = 78;
 
 function getGrid() {

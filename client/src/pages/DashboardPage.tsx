@@ -41,6 +41,7 @@ import { FilesApp } from "../components/files/FilesApp";
 import { NotesApp } from "../components/notes/NotesApp";
 import { CodeEditorApp } from "../components/code/CodeEditorApp";
 import { MediaApp } from "../components/media/MediaApp";
+import { CalculatorApp } from "../components/calculator/CalculatorApp";
 import {
   findUtcMsForZonedDate,
   formatZonedDateShort,
@@ -87,6 +88,7 @@ type SettingsTabArg = "system" | "desktop" | "network" | "profile";
 
 type StartMenuHandlerApi = {
   openTerminal: () => void;
+  openCalculator: () => void;
   openSettings: (tab?: SettingsTabArg) => void;
   openFiles: (path: string) => void;
   openNotes: () => void;
@@ -201,19 +203,6 @@ function buildStartMenuCatalog(lang: GameLanguage, h: StartMenuHandlerApi): {
         "code",
         "код"
       ),
-      row(
-        "games-ctf-terminal",
-        <TaskbarThemeIcon src={themeIconUrl("terminal.svg")} alt="" className={smIco} />,
-        "CTF Терминал",
-        "CTF Terminal",
-        () => h.openTerminal(),
-        "терминал",
-        "terminal",
-        "консоль",
-        "console",
-        tRu.dockTerminal,
-        tEn.dockTerminal
-      )
     ],
     graphics: [
       row(
@@ -246,23 +235,6 @@ function buildStartMenuCatalog(lang: GameLanguage, h: StartMenuHandlerApi): {
       )
     ],
     internet: [
-      row(
-        "internet-net-terminal",
-        <TaskbarThemeIcon src={themeIconUrl("terminal.svg")} alt="" className={smIco} />,
-        "Сетевой терминал",
-        "Network terminal",
-        () => h.openTerminal(),
-        "сеть",
-        "network",
-        "терминал",
-        "terminal",
-        "wifi",
-        "wi-fi",
-        "ip",
-        "ping",
-        tRu.dockTerminal,
-        tEn.dockTerminal
-      ),
       row(
         "internet-net-settings",
         <TaskbarThemeIcon src={themeIconUrl("settings.svg")} alt="" className={smIco} />,
@@ -310,6 +282,18 @@ function buildStartMenuCatalog(lang: GameLanguage, h: StartMenuHandlerApi): {
         "folder",
         tRu.dockFiles,
         tEn.dockFiles
+      ),
+      row(
+        "office-calculator",
+        <TaskbarThemeIcon src={themeIconUrl("document.svg")} alt="" className={smIco} />,
+        "Калькулятор",
+        "Calculator",
+        () => h.openCalculator(),
+        "калькулятор",
+        "calculator",
+        "calc",
+        "math",
+        "вычис"
       )
     ],
     sundry: [
@@ -650,6 +634,9 @@ export function DashboardPage() {
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [terminalMinimized, setTerminalMinimized] = useState(false);
 
+  const [calculatorOpen, setCalculatorOpen] = useState(false);
+  const [calculatorMinimized, setCalculatorMinimized] = useState(false);
+
   const [startOpen, setStartOpen] = useState(false);
   const startRef = useRef<HTMLDivElement | null>(null);
 
@@ -734,6 +721,26 @@ export function DashboardPage() {
         ? "Нет соединения"
         : "No connection";
 
+  // Keyboard layout indicator
+  const [keyboardLayout, setKeyboardLayout] = useState<"RU" | "EN">("EN");
+
+  useEffect(() => {
+    const updateLayout = () => {
+      const lang = navigator.language || (navigator as any).userLanguage || "en-US";
+      setKeyboardLayout(lang.toLowerCase().startsWith("ru") ? "RU" : "EN");
+    };
+    updateLayout();
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Detect layout change from Alt+Shift or Ctrl+Shift
+      if ((e.altKey || e.ctrlKey) && e.key === "Shift") {
+        setTimeout(updateLayout, 100);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   const [desktopMenuOpen, setDesktopMenuOpen] = useState(false);
   const [desktopMenuPos, setDesktopMenuPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const desktopMenuRef = useRef<HTMLDivElement | null>(null);
@@ -749,7 +756,7 @@ export function DashboardPage() {
   };
 
   // Window stacking / focus management (full rewrite: shared mechanics for all app windows).
-  type WindowId = "terminal" | "settings" | "files" | "notes" | "scripts" | "media";
+  type WindowId = "terminal" | "calculator" | "settings" | "files" | "notes" | "scripts" | "media";
   type WindowBaseState = { id: string; minimized: boolean; z: number };
   const [activeWindowToken, setActiveWindowToken] = useState<string | null>(null);
   const zTopRef = useRef(90);
@@ -772,6 +779,12 @@ export function DashboardPage() {
   const focusTerminal = () => {
     setTerminalZ(nextZ());
     setActiveWindowToken(makeWindowToken("terminal", "main"));
+  };
+
+  const [calculatorZ, setCalculatorZ] = useState(92);
+  const focusCalculator = () => {
+    setCalculatorZ(nextZ());
+    setActiveWindowToken(makeWindowToken("calculator", "main"));
   };
 
   type SettingsTab = "system" | "desktop" | "network" | "profile";
@@ -1324,31 +1337,50 @@ export function DashboardPage() {
   };
 
   const moveEntryToDesktopRoot = async (srcRelPath: string) => {
-    if (srcRelPath === GAME_DESKTOP_FOLDER_REL || srcRelPath.startsWith(`${GAME_DESKTOP_FOLDER_REL}/`)) {
-      addToast(lang === "ru" ? "Уже в папке «Рабочий стол»" : "Already on Desktop");
+    await moveMultipleEntriesToDesktopRoot([srcRelPath]);
+  };
+
+  const moveMultipleEntriesToDesktopRoot = async (srcRelPaths: string[]) => {
+    const unique = [...new Set(srcRelPaths)].filter(
+      p => p !== "" && p !== "Trash" && p !== GAME_DESKTOP_FOLDER_REL && !p.startsWith(`${GAME_DESKTOP_FOLDER_REL}/`)
+    );
+    if (!unique.length) {
+      addToast(lang === "ru" ? "Уже на рабочем столе" : "Already on Desktop");
       return;
     }
-    const baseName = srcRelPath.split("/").filter(Boolean).pop();
-    if (!baseName) return;
-    if (srcRelPath === baseName) return;
-    if (
-      ["Notes", "Scripts", "Photos", "Videos", "Wallpapers", "Trash", "Desktop", "Documents", "Music", "Downloads"].includes(
-        srcRelPath
-      )
-    ) {
-      addToast(lang === "ru" ? "Системные папки нельзя перемещать" : "System folders cannot be moved");
-      return;
+    let moved = 0;
+    let blocked = false;
+    for (const srcRelPath of unique) {
+      const baseName = srcRelPath.split("/").filter(Boolean).pop();
+      if (!baseName) continue;
+      if (srcRelPath === baseName) continue;
+      if (
+        ["Notes", "Scripts", "Photos", "Videos", "Wallpapers", "Trash", "Desktop", "Documents", "Music", "Downloads"].includes(
+          srcRelPath
+        )
+      ) {
+        blocked = true;
+        continue;
+      }
+      try {
+        await initGameFs();
+        const uniqueName = await uniqueChildNameInParent(GAME_DESKTOP_FOLDER_REL, baseName);
+        const dst = `${GAME_DESKTOP_FOLDER_REL}/${uniqueName}`;
+        await moveFs(srcRelPath, dst);
+        moved++;
+      } catch (e) {
+        // skip conflict, continue others
+      }
     }
-    try {
-      await initGameFs();
-      const unique = await uniqueChildNameInParent(GAME_DESKTOP_FOLDER_REL, baseName);
-      const dst = `${GAME_DESKTOP_FOLDER_REL}/${unique}`;
-      await moveFs(srcRelPath, dst);
+    if (moved > 0) {
       await reloadDesktopDirs();
-      addToast(lang === "ru" ? "Перемещено на рабочий стол" : "Moved to Desktop");
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      addToast(lang === "ru" ? `Ошибка перемещения: ${msg}` : `Move failed: ${msg}`);
+      addToast(lang === "ru" ? `Перемещено: ${moved}` : `Moved: ${moved}`);
+    }
+    if (blocked) {
+      addToast(lang === "ru" ? "Системные папки нельзя перемещать" : "System folders cannot be moved");
+    }
+    if (moved === 0 && !blocked) {
+      addToast(lang === "ru" ? "Ошибка перемещения" : "Move failed");
     }
   };
 
@@ -1476,6 +1508,24 @@ export function DashboardPage() {
     if (activeWindowToken === makeWindowToken("terminal", "main")) setActiveWindowToken(null);
   };
 
+  const openCalculator = () => {
+    focusCalculator();
+    setCalculatorOpen(true);
+    setCalculatorMinimized(false);
+  };
+
+  const minimizeCalculator = () => {
+    setCalculatorMinimized(true);
+    setCalculatorOpen(false);
+    if (activeWindowToken === makeWindowToken("calculator", "main")) setActiveWindowToken(null);
+  };
+
+  const closeCalculator = () => {
+    setCalculatorOpen(false);
+    setCalculatorMinimized(false);
+    if (activeWindowToken === makeWindowToken("calculator", "main")) setActiveWindowToken(null);
+  };
+
   type TaskbarWindowEntry = {
     token: string;
     windowType: WindowId;
@@ -1516,10 +1566,23 @@ export function DashboardPage() {
             token: makeWindowToken("terminal", "main"),
             windowType: "terminal" as const,
             id: "main",
-            label: "Terminal",
+            label: lang === "ru" ? "Терминал" : "Terminal",
             title: t.dockTerminal,
             icon: <TaskbarThemeIcon src={themeIconUrl("terminal.svg")} alt="" />,
             minimized: terminalMinimized
+          }
+        ]
+      : []),
+    ...(calculatorOpen || calculatorMinimized
+      ? [
+          {
+            token: makeWindowToken("calculator", "main"),
+            windowType: "calculator" as const,
+            id: "main",
+            label: lang === "ru" ? "Калькулятор" : "Calculator",
+            title: lang === "ru" ? "Калькулятор" : "Calculator",
+            icon: <TaskbarThemeIcon src={themeIconUrl("document.svg")} alt="" />,
+            minimized: calculatorMinimized
           }
         ]
       : []),
@@ -1577,6 +1640,11 @@ export function DashboardPage() {
         setTerminalMinimized(false);
         focusTerminal();
         break;
+      case "calculator":
+        setCalculatorOpen(true);
+        setCalculatorMinimized(false);
+        focusCalculator();
+        break;
       case "settings":
         focusSettingsWindow(entry.id);
         break;
@@ -1600,6 +1668,9 @@ export function DashboardPage() {
       case "terminal":
         minimizeTerminal();
         break;
+      case "calculator":
+        minimizeCalculator();
+        break;
       case "settings":
         minimizeSettingsWindow(entry.id);
         break;
@@ -1622,6 +1693,9 @@ export function DashboardPage() {
     switch (entry.windowType) {
       case "terminal":
         closeTerminal();
+        break;
+      case "calculator":
+        closeCalculator();
         break;
       case "settings":
         closeSettingsWindow(entry.id);
@@ -1755,6 +1829,7 @@ export function DashboardPage() {
 
   const startMenuCatalog = buildStartMenuCatalog(lang, {
     openTerminal,
+    openCalculator,
     openSettings,
     openFiles,
     openNotes,
@@ -2021,6 +2096,18 @@ export function DashboardPage() {
               title={t.dockSettings}
             >
               <TaskbarThemeIcon src={themeIconUrl("settings.svg")} alt="" />
+            </button>
+
+            {/* Keyboard layout indicator */}
+            <button
+              type="button"
+              className="taskbar-app taskbar-status-btn"
+              onClick={() => setKeyboardLayout(prev => prev === "RU" ? "EN" : "RU")}
+              aria-label={lang === "ru" ? "Раскладка клавиатуры" : "Keyboard layout"}
+              title={lang === "ru" ? "Переключить раскладку" : "Toggle layout"}
+              style={{ minWidth: "48px", fontWeight: 700, fontSize: "11px" }}
+            >
+              {keyboardLayout}
             </button>
 
             {/* Exit/Logout buttons removed (handled via system UI), see Start menu / dialogs. */}
@@ -2567,7 +2654,11 @@ export function DashboardPage() {
           setDesktopDropActive(false);
           if (!internal) return;
           e.preventDefault();
-          void moveEntryToDesktopRoot(internal);
+          // Use selected paths if multiple files are selected, otherwise just the dragged one
+          const sources = desktopSelectedRelPaths.size > 1 
+            ? [...desktopSelectedRelPaths].filter(p => p !== "" && p !== "Trash")
+            : [internal];
+          void moveMultipleEntriesToDesktopRoot(sources);
         }}
         onPointerDown={(e) => {
           if (e.button !== 0) return;
@@ -3039,6 +3130,18 @@ export function DashboardPage() {
             zIndex={w.z}
           />
         ))}
+
+        {/* Calculator app window */}
+        {calculatorOpen || calculatorMinimized ? (
+          <CalculatorApp
+            lang={lang}
+            onMinimize={minimizeCalculator}
+            onClose={closeCalculator}
+            minimized={calculatorMinimized && !calculatorOpen}
+            onFocus={focusCalculator}
+            zIndex={calculatorZ}
+          />
+        ) : null}
 
         {/* Terminal window */}
         {terminalOpen || terminalMinimized ? (

@@ -114,10 +114,13 @@ export function TerminalApp({
         "  cat <файл…>, mkdir <папка…>, rmdir <пустая_папка>",
         "  rm [-rf] <путь…>, mv <откуда> <куда>, cp <файл> <файл>",
         "  touch <файл…>, df — диск, echo [текст] [>|>> файл]",
-        "  hackrun <скрипт.hack> — HackScript из текущей папки или по пути",
+        "  hackrun <скрипт.hack> — выполнить HackScript",
+        "",
+        "Информация о системе:",
+        "  whoami, ip, profile, hostname, date, uptime",
         "",
         "Прочее:",
-        "  help, whoami, ip, profile, clear, exit, logout"
+        "  help, clear, exit, logout"
       ].join("\n");
     }
     return [
@@ -126,10 +129,13 @@ export function TerminalApp({
       "  cat <file…>, mkdir <dir…>, rmdir <empty_dir>",
       "  rm [-rf] <path…>, mv <src> <dst>, cp <file> <file>",
       "  touch <file…>, df — virtual disk, echo [text] [> or >> file]",
-      "  hackrun <script.hack> — HackScript in cwd or by path",
+      "  hackrun <script.hack> — execute HackScript",
+      "",
+      "System information:",
+      "  whoami, ip, profile, hostname, date, uptime",
       "",
       "Other:",
-      "  help, whoami, ip, profile, clear, exit, logout"
+      "  help, clear, exit, logout"
     ].join("\n");
   }, [lang]);
 
@@ -155,7 +161,10 @@ export function TerminalApp({
       "tree",
       "df",
       "echo",
-      "hackrun"
+      "hackrun",
+      "hostname",
+      "date",
+      "uptime"
     ];
   }, []);
 
@@ -427,6 +436,20 @@ export function TerminalApp({
         break;
       case "ip":
         push(isRu ? `Виртуальный IP: ${ip}` : `Virtual IP: ${ip}`);
+        break;
+      case "hostname":
+        push(isRu ? `zeroday-pc` : `zeroday-pc`);
+        break;
+      case "date":
+        const now = new Date();
+        push(isRu ? now.toLocaleString("ru-RU") : now.toLocaleString("en-US"));
+        break;
+      case "uptime":
+        const uptimeSec = Math.floor(performance.now() / 1000);
+        const h = Math.floor(uptimeSec / 3600);
+        const m = Math.floor((uptimeSec % 3600) / 60);
+        const s = uptimeSec % 60;
+        push(isRu ? `up ${h}h ${m}m ${s}s` : `up ${h}h ${m}m ${s}s`);
         break;
       case "profile":
         push(

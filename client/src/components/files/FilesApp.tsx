@@ -1129,19 +1129,27 @@ export function FilesApp({
             setDragOverListArea(false);
             const internal = getInternalDragRel(e.dataTransfer);
             if (internal) {
+              // Determine which files to move: use selected paths if multiple, otherwise the dragged one
+              const sources = selectedPaths.length > 1 ? selectedPaths : [internal];
               // Drop into currentRel (if current item is dir or root)
               if (!currentRel || currentRel === DISK0_VIEW) {
                 void (async () => {
-                  const baseName = internal.split("/").filter(Boolean).pop();
-                  if (!baseName) return;
-                  await moveFs(internal, baseName);
+                  for (const src of sources) {
+                    const baseName = src.split("/").filter(Boolean).pop();
+                    if (!baseName) continue;
+                    try {
+                      await moveFs(src, baseName);
+                    } catch {
+                      // skip conflict, continue others
+                    }
+                  }
                   setDraggingRelPath(null);
                   setDragOverDirRelPath(null);
                   await refresh();
                   notifyFsChanged();
                 })();
               } else {
-                void moveDraggedIntoDir(internal, currentRel);
+                void moveMultipleToDir(sources, currentRel);
               }
               return;
             }
@@ -1247,7 +1255,9 @@ export function FilesApp({
                           const internal = getInternalDragRel(ev.dataTransfer);
                           if (!internal) return;
                           if (internal === e.relPath) return;
-                          void moveDraggedIntoDir(internal, e.relPath);
+                          // Use selected paths if multiple files are selected
+                          const sources = selectedPaths.length > 1 ? selectedPaths : [internal];
+                          void moveMultipleToDir(sources, e.relPath);
                         }}
                         data-files-dir-drop={e.kind === "dir" ? "1" : undefined}
                         data-dir-rel={e.kind === "dir" ? e.relPath : undefined}
@@ -1315,7 +1325,9 @@ export function FilesApp({
                           const internal = getInternalDragRel(ev.dataTransfer);
                           if (!internal) return;
                           if (internal === e.relPath) return;
-                          void moveDraggedIntoDir(internal, e.relPath);
+                          // Use selected paths if multiple files are selected
+                          const sources = selectedPaths.length > 1 ? selectedPaths : [internal];
+                          void moveMultipleToDir(sources, e.relPath);
                         }}
                         data-files-dir-drop={e.kind === "dir" ? "1" : undefined}
                         data-dir-rel={e.kind === "dir" ? e.relPath : undefined}

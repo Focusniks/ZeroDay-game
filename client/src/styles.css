@@ -206,12 +206,12 @@ textarea,
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 6px;
-  background: linear-gradient(180deg, rgba(26, 31, 41, 0.97) 0%, rgba(19, 24, 33, 0.97) 100%);
-  border: 1px solid rgba(114, 128, 150, 0.35);
+  padding: 0 8px;
+  background: rgba(15, 20, 30, 0.92);
+  border: 1px solid rgba(45, 212, 191, 0.12);
   border-radius: 0;
-  backdrop-filter: blur(8px);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 20px 60px rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.05);
   z-index: 280;
   pointer-events: auto;
 }
@@ -250,15 +250,24 @@ body.zd-cinema-mode .taskbar {
 }
 
 .taskbar-start {
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   padding: 0;
-  border-radius: 7px;
+  border-radius: 8px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0;
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+  background: rgba(45, 212, 191, 0.15);
+  border: 1px solid rgba(45, 212, 191, 0.35);
+  box-shadow: 0 4px 16px rgba(45, 212, 191, 0.15);
+  transition: all 120ms ease;
+}
+
+.taskbar-start:hover {
+  background: rgba(45, 212, 191, 0.25);
+  border-color: rgba(45, 212, 191, 0.55);
+  box-shadow: 0 6px 20px rgba(45, 212, 191, 0.25);
 }
 
 .linux-launcher-btn {
@@ -283,26 +292,28 @@ body.zd-cinema-mode .taskbar {
 }
 
 .taskbar-app {
-  height: 32px;
-  min-width: 32px;
+  height: 34px;
+  min-width: 34px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 6px;
-  border: 1px solid rgba(112, 126, 149, 0.36);
-  background: linear-gradient(180deg, rgba(80, 87, 101, 0.82), rgba(53, 59, 72, 0.82));
+  border-radius: 8px;
+  border: 1px solid rgba(45, 212, 191, 0.18);
+  background: rgba(30, 40, 55, 0.85);
   color: rgba(226, 232, 240, 1);
-  transition: background-color 120ms ease, border-color 120ms ease;
+  transition: all 120ms ease;
 }
 
 .taskbar-app:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(45, 212, 191, 0.35);
+  background: rgba(45, 212, 191, 0.15);
+  border-color: rgba(45, 212, 191, 0.45);
+  box-shadow: 0 0 16px rgba(45, 212, 191, 0.12);
 }
 
 .taskbar-app--active {
-  background: linear-gradient(180deg, rgba(109, 123, 145, 0.95), rgba(71, 81, 98, 0.95));
-  border-color: rgba(134, 198, 255, 0.82);
+  background: rgba(45, 212, 191, 0.22);
+  border-color: rgba(45, 212, 191, 0.65);
+  box-shadow: 0 0 20px rgba(45, 212, 191, 0.2);
 }
 
 .taskbar-app--minimized {
@@ -356,23 +367,34 @@ body.zd-cinema-mode .taskbar {
 }
 
 .taskbar-status-btn {
-  width: 34px;
-  min-width: 34px;
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
   padding: 0;
+  border-radius: 8px;
+  border: 1px solid rgba(45, 212, 191, 0.18);
+  background: rgba(30, 40, 55, 0.85);
+  color: rgba(226, 232, 240, 1);
+  transition: all 120ms ease;
+}
+
+.taskbar-status-btn:hover {
+  background: rgba(45, 212, 191, 0.15);
+  border-color: rgba(45, 212, 191, 0.45);
 }
 
 .taskbar-status-btn .taskbar-theme-icon {
-  width: 17px;
-  height: 17px;
+  width: 18px;
+  height: 18px;
 }
 
 .taskbar-clock {
-  height: 32px;
-  min-width: 94px;
-  padding: 0 7px;
-  border-radius: 6px;
-  border: 1px solid rgba(112, 126, 149, 0.36);
-  background: linear-gradient(180deg, rgba(79, 87, 101, 0.82), rgba(53, 59, 72, 0.82));
+  height: 34px;
+  min-width: 96px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(45, 212, 191, 0.18);
+  background: rgba(30, 40, 55, 0.85);
   color: rgba(226, 232, 240, 1);
   display: inline-flex;
   align-items: center;
@@ -380,12 +402,13 @@ body.zd-cinema-mode .taskbar {
   font-weight: 700;
   letter-spacing: 0.02em;
   cursor: pointer;
-  transition: background-color 120ms ease, border-color 120ms ease;
+  transition: all 120ms ease;
 }
 
 .taskbar-clock:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(45, 212, 191, 0.35);
+  background: rgba(45, 212, 191, 0.15);
+  border-color: rgba(45, 212, 191, 0.45);
+  box-shadow: 0 0 16px rgba(45, 212, 191, 0.1);
 }
 
 .taskbar-clock-wrap {
@@ -508,25 +531,26 @@ body.zd-cinema-mode .taskbar {
   position: fixed;
   z-index: 1100;
   left: 16px;
-  bottom: 70px; /* above taskbar */
-  width: 620px;
-  height: 520px;
-  max-height: min(520px, calc(100vh - 96px));
+  bottom: 70px;
+  width: 640px;
+  height: 540px;
+  max-height: min(540px, calc(100vh - 96px));
   display: flex;
   flex-direction: column;
-  background: #3f444c;
-  border: 1px solid rgba(0, 0, 0, 0.35);
-  border-radius: 10px;
-  box-shadow: 0 40px 90px rgba(0, 0, 0, 0.55);
+  background: rgba(15, 20, 30, 0.96);
+  border: 1px solid rgba(45, 212, 191, 0.18);
+  border-radius: 12px;
+  box-shadow: 0 -16px 64px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(45, 212, 191, 0.05);
   overflow: hidden;
   color: rgba(226, 232, 240, 1);
+  backdrop-filter: blur(16px);
 }
 
 .start-menu-header {
   flex: 0 0 auto;
-  padding: 14px 16px;
-  background: #353a43;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  padding: 16px 18px;
+  background: rgba(20, 28, 40, 0.85);
+  border-bottom: 1px solid rgba(45, 212, 191, 0.12);
 }
 
 .start-menu-user {
@@ -576,15 +600,15 @@ body.zd-cinema-mode .taskbar {
 }
 
 .start-menu-categories {
-  flex: 0 0 200px;
-  width: 200px;
-  padding: 8px;
-  background: #353a43;
-  border-right: 1px solid rgba(255, 255, 255, 0.07);
+  flex: 0 0 210px;
+  width: 210px;
+  padding: 10px;
+  background: rgba(20, 28, 40, 0.65);
+  border-right: 1px solid rgba(45, 212, 191, 0.12);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
 }
 
 .start-menu-cat {
@@ -593,25 +617,27 @@ body.zd-cinema-mode .taskbar {
   gap: 10px;
   width: 100%;
   text-align: left;
-  padding: 9px 10px;
-  border: 0;
+  padding: 10px 12px;
+  border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
-  color: rgba(226, 232, 240, 1);
+  color: rgba(226, 232, 240, 0.92);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  transition: background-color 120ms ease, color 120ms ease, opacity 120ms ease;
+  transition: all 120ms ease;
 }
 
 .start-menu-cat:hover {
-  background: rgba(148, 163, 184, 0.16);
+  background: rgba(45, 212, 191, 0.08);
+  border-color: rgba(45, 212, 191, 0.2);
 }
 
 .start-menu-cat.is-active {
-  background: rgba(45, 212, 191, 0.16);
-  box-shadow: inset 0 0 0 1px rgba(45, 212, 191, 0.35);
+  background: rgba(45, 212, 191, 0.18);
+  border-color: rgba(45, 212, 191, 0.45);
   color: rgba(240, 253, 250, 1);
+  box-shadow: 0 0 12px rgba(45, 212, 191, 0.1);
 }
 
 .start-menu-cat.is-dimmed:not(.is-active) {
@@ -638,8 +664,8 @@ body.zd-cinema-mode .taskbar {
 .start-menu-pane {
   flex: 1 1 auto;
   min-width: 0;
-  padding: 12px 14px 14px;
-  background: #3f444c;
+  padding: 14px 16px;
+  background: rgba(15, 20, 30, 0.85);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -669,20 +695,21 @@ body.zd-cinema-mode .taskbar {
   gap: 12px;
   width: 100%;
   text-align: left;
-  padding: 10px 12px;
-  border: 0;
+  padding: 11px 13px;
+  border: 1px solid rgba(45, 212, 191, 0.1);
   border-radius: 8px;
-  background: rgba(0, 0, 0, 0.12);
+  background: rgba(30, 40, 55, 0.65);
   color: rgba(226, 232, 240, 1);
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
-  transition: background-color 120ms ease, box-shadow 120ms ease;
+  transition: all 120ms ease;
 }
 
 .start-menu-app-row:hover {
-  background: rgba(148, 163, 184, 0.14);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  background: rgba(45, 212, 191, 0.12);
+  border-color: rgba(45, 212, 191, 0.35);
+  box-shadow: 0 0 12px rgba(45, 212, 191, 0.08);
 }
 
 .start-menu-app-row-ico {
@@ -727,9 +754,9 @@ body.zd-cinema-mode .taskbar {
 .start-menu-bottom {
   flex: 0 0 auto;
   height: 78px;
-  background: #353a43;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-  padding: 12px 16px;
+  background: rgba(20, 28, 40, 0.85);
+  border-top: 1px solid rgba(45, 212, 191, 0.12);
+  padding: 12px 18px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -741,11 +768,18 @@ body.zd-cinema-mode .taskbar {
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 40px;
-  background: rgba(0, 0, 0, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 6px;
-  padding: 0 12px;
+  height: 42px;
+  background: rgba(15, 20, 30, 0.65);
+  border: 1px solid rgba(45, 212, 191, 0.18);
+  border-radius: 8px;
+  padding: 0 14px;
+  transition: all 120ms ease;
+}
+
+.start-menu-search:focus-within {
+  border-color: rgba(45, 212, 191, 0.45);
+  background: rgba(15, 20, 30, 0.85);
+  box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.08);
 }
 
 .start-menu-search-ico {
@@ -768,26 +802,26 @@ body.zd-cinema-mode .taskbar {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding-right: 2px;
 }
 
 .start-menu-circle-btn {
   width: 44px;
   height: 44px;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  background: rgba(30, 40, 55, 0.65);
+  border: 1px solid rgba(45, 212, 191, 0.18);
   color: rgba(226, 232, 240, 1);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: background-color 120ms ease, border-color 120ms ease;
+  transition: all 120ms ease;
 }
 
 .start-menu-circle-btn:hover {
-  background: rgba(0, 0, 0, 0.28);
-  border-color: rgba(45, 212, 191, 0.35);
+  background: rgba(45, 212, 191, 0.15);
+  border-color: rgba(45, 212, 191, 0.45);
+  box-shadow: 0 0 12px rgba(45, 212, 191, 0.1);
 }
 
 .desktop-ctx-menu {
@@ -911,11 +945,11 @@ body.zd-cinema-mode .taskbar {
 }
 
 .desktop-folder-icon {
-  width: 140px;
+  width: 80px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   position: absolute;
   cursor: grab;
   user-select: none;
@@ -968,13 +1002,13 @@ body.zd-cinema-mode .taskbar {
 .clock-popover {
   position: fixed;
   z-index: 1300;
-  width: 332px;
-  padding: 12px 12px 14px 12px;
+  width: 340px;
+  padding: 16px;
   border-radius: 14px;
-  background: rgba(17, 24, 39, 0.92);
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(10px);
+  background: rgba(15, 20, 30, 0.96);
+  border: 1px solid rgba(45, 212, 191, 0.18);
+  box-shadow: 0 -16px 64px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(45, 212, 191, 0.05);
+  backdrop-filter: blur(16px);
 }
 
 .clock-popover-header {
@@ -986,19 +1020,20 @@ body.zd-cinema-mode .taskbar {
 }
 
 .clock-nav-btn {
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(45, 212, 191, 0.18);
+  background: rgba(30, 40, 55, 0.65);
   color: rgba(226, 232, 240, 1);
   cursor: pointer;
-  transition: background-color 120ms ease, border-color 120ms ease;
+  transition: all 120ms ease;
 }
 
 .clock-nav-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(45, 212, 191, 0.35);
+  background: rgba(45, 212, 191, 0.15);
+  border-color: rgba(45, 212, 191, 0.45);
+  box-shadow: 0 0 12px rgba(45, 212, 191, 0.1);
 }
 
 .clock-month-label {
@@ -1045,28 +1080,32 @@ body.zd-cinema-mode .taskbar {
 }
 
 .clock-day {
-  height: 30px;
+  height: 32px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(45, 212, 191, 0.15);
+  background: rgba(30, 40, 55, 0.55);
   color: rgba(226, 232, 240, 0.95);
   font-size: 12px;
   cursor: pointer;
+  transition: all 120ms ease;
 }
 
 .clock-day:hover {
-  border-color: rgba(45, 212, 191, 0.35);
-  background: rgba(45, 212, 191, 0.08);
+  border-color: rgba(45, 212, 191, 0.45);
+  background: rgba(45, 212, 191, 0.15);
+  box-shadow: 0 0 12px rgba(45, 212, 191, 0.1);
 }
 
 .clock-day--today {
-  border-color: rgba(45, 212, 191, 0.8);
-  background: rgba(45, 212, 191, 0.15);
+  border-color: rgba(45, 212, 191, 0.75);
+  background: rgba(45, 212, 191, 0.25);
+  box-shadow: 0 0 16px rgba(45, 212, 191, 0.2);
 }
 
 .clock-day--selected {
-  border-color: rgba(59, 130, 246, 0.8);
-  background: rgba(59, 130, 246, 0.15);
+  border-color: rgba(59, 130, 246, 0.75);
+  background: rgba(59, 130, 246, 0.25);
+  box-shadow: 0 0 16px rgba(59, 130, 246, 0.2);
 }
 
 .clock-day--ghost {
@@ -1076,18 +1115,20 @@ body.zd-cinema-mode .taskbar {
 }
 
 .clock-today-btn {
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(45, 212, 191, 0.18);
+  background: rgba(30, 40, 55, 0.65);
   color: rgba(226, 232, 240, 1);
   border-radius: 8px;
   font-size: 11px;
   font-weight: 700;
-  padding: 4px 8px;
+  padding: 5px 10px;
+  transition: all 120ms ease;
 }
 
 .clock-today-btn:hover {
   border-color: rgba(45, 212, 191, 0.45);
-  background: rgba(45, 212, 191, 0.1);
+  background: rgba(45, 212, 191, 0.15);
+  box-shadow: 0 0 12px rgba(45, 212, 191, 0.1);
 }
 
 .desktop-folder-ico {
@@ -1138,7 +1179,7 @@ body.zd-dragging-cursor * {
   font-size: 13px;
   color: rgba(226, 232, 240, 0.95);
   text-align: center;
-  max-width: 140px;
+  max-width: 80px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1206,10 +1247,19 @@ body.zd-dragging-cursor * {
   background: transparent;
   color: transparent; /* text hidden; caret stays visible */
   caret-color: rgba(45, 212, 191, 1);
+  user-select: text;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   font-size: 12px;
   line-height: 1.5;
   tab-size: 2;
+}
+
+.code-editor-textarea::selection {
+  background: rgba(45, 212, 191, 0.22);
+}
+
+.code-editor-textarea::-moz-selection {
+  background: rgba(45, 212, 191, 0.22);
 }
 
 /* HackScript token colors */
