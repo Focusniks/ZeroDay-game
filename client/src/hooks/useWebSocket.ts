@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type ReadyState = "connecting" | "open" | "closed" | "error";
 
-// Локальный WebSocket сервер
-const DEFAULT_WS_URL = "ws://127.0.0.1:8080";
+// WebSocket URL из .env или значение по умолчанию
+const DEFAULT_WS_URL = import.meta.env.VITE_WS_URL || "ws://127.0.0.1:8080";
 
 export function useWebSocket(url?: string) {
   const wsUrl = url || DEFAULT_WS_URL;

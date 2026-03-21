@@ -1350,8 +1350,17 @@ async fn respond_to_friend_request_http(
             "ok": false, "error": "Unauthorized"
         }))
     };
-    
-    match messenger::respond_to_friend_request(&state.pool, &user_id, &request_id, accept).await {
+
+    // Парсим request_id из String в Uuid
+    let req_uuid = match Uuid::parse_str(&request_id) {
+        Ok(uuid) => uuid,
+        Err(e) => return HttpResponse::BadRequest().json(serde_json::json!({
+            "ok": false,
+            "error": format!("Invalid request_id: {}", e)
+        })),
+    };
+
+    match messenger::respond_to_friend_request(&state.pool, &user_id, &req_uuid, accept).await {
         Ok(()) => HttpResponse::Ok().json(serde_json::json!({
             "ok": true,
             "accepted": accept
@@ -1446,12 +1455,8 @@ async fn create_conversation_http(
 
     let user = match messenger::get_messenger_profile(&state.pool, &user_id).await {
         Ok(Some(p)) => {
-            let profile_user_id = p.user_id
-                .map(|id| id.to_string())
-                .unwrap_or_else(|| user_id.clone());
-            
             AuthUser {
-                id: profile_user_id,
+                id: user_id.clone(),
                 username: p.display_name,
                 email: String::new(),
                 ip_address: String::new(),
@@ -1469,7 +1474,7 @@ async fn create_conversation_http(
 
     match messenger::create_conversation(
         &state.pool,
-        &user,
+        &user.id,
         payload.user_ids.clone(),
         payload.name.clone(),
         payload.is_group,
@@ -1532,12 +1537,8 @@ async fn send_message_http_api(
     
     let user = match messenger::get_messenger_profile(&state.pool, &user_id).await {
         Ok(Some(p)) => {
-            let profile_user_id = p.user_id
-                .map(|id| id.to_string())
-                .unwrap_or_else(|| user_id.clone());
-            
             AuthUser {
-                id: profile_user_id,
+                id: user_id.clone(),
                 username: p.display_name,
                 email: String::new(),
                 ip_address: String::new(),
@@ -1552,12 +1553,12 @@ async fn send_message_http_api(
             "error": "Messenger profile not found"
         }))
     };
-    
+
     match messenger::send_message(
         &state.pool,
-        &user,
+        &user.id,
         &conversation_id,
-        payload.content.clone(),
+        &payload.content.clone(),
         payload.message_type.clone(),
         payload.media_url.clone(),
         payload.reply_to_id.clone(),
@@ -1798,6 +1799,12 @@ async fn main() -> anyhow::Result<()> {
             .route("/api/browser/bookmarks/{bookmark_id}", web::delete().to(delete_bookmark))
             .route("/api/browser/settings", web::get().to(get_settings))
             .route("/api/browser/settings", web::put().to(update_settings))
+            // Sites - прямая раздача статических файлов (для iframe в браузере)
+            .route("/sites/{site_name}/{file_path:.*}", web::get().to(get_site_file_http))
+            .route("/sites/{site_name}", web::get().to(|site_name: web::Path<String>| async move {
+                let path = web::Path::from((site_name.into_inner(), "index.html".to_string()));
+                get_site_file_http(path).await
+            }))
             // Sites API (статические файлы сайтов)
             .route("/api/sites", web::get().to(get_sites_list))
             .route("/api/sites", web::post().to(create_site_http))

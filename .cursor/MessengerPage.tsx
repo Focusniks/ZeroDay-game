@@ -10,14 +10,57 @@ import {
 
 // ==================== UI Компоненты ====================
 
+function AvatarPreview({ avatarData, displayName, onClick, size = "md" }: { 
+  avatarData: string | null; 
+  displayName: string; 
+  onClick?: () => void;
+  size?: "sm" | "md" | "lg" | "xl";
+}) {
+  const sizes = { sm: "w-8 h-8 text-xs", md: "w-10 h-10 text-sm", lg: "w-12 h-12 text-base", xl: "w-20 h-20 text-2xl" };
+  const [imgError, setImgError] = useState(false);
+  const isExternalUrl = avatarData && avatarData.startsWith('http');
+
+  return (
+    <div
+      className={`${sizes[size]} rounded-full bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 flex items-center justify-center text-white font-bold shadow-xl cursor-pointer overflow-hidden`}
+      onClick={onClick}
+    >
+      {avatarData && !imgError ? (
+        <img
+          src={avatarData}
+          alt="Avatar"
+          className="w-full h-full object-cover"
+          crossOrigin={isExternalUrl ? "anonymous" : undefined}
+          onError={() => {
+            setImgError(true);
+          }}
+        />
+      ) : (
+        displayName.charAt(0).toUpperCase()
+      )}
+    </div>
+  );
+}
+
 function Avatar({ name, url, size = "md", online = false }: { name: string; url?: string | null; size?: "sm" | "md" | "lg" | "xl"; online?: boolean }) {
   const sizes = { sm: "w-8 h-8 text-xs", md: "w-10 h-10 text-sm", lg: "w-12 h-12 text-base", xl: "w-20 h-20 text-2xl" };
-  
+  const [imgError, setImgError] = useState(false);
+
+  const isExternalUrl = url && !url.startsWith('data:') && !url.startsWith('http://127.0.0.1') && !url.startsWith('http://localhost');
+
   return (
     <div className="relative flex-shrink-0">
       <div className={`${sizes[size]} rounded-full bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 flex items-center justify-center text-white font-bold overflow-hidden shadow-lg`}>
-        {url ? (
-          <img src={url} alt={name} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).src = ''; }} />
+        {url && !imgError ? (
+          <img
+            src={url}
+            alt={name}
+            className="w-full h-full object-cover"
+            crossOrigin={isExternalUrl ? "anonymous" : undefined}
+            onError={() => {
+              setImgError(true);
+            }}
+          />
         ) : (
           name.charAt(0).toUpperCase()
         )}
@@ -133,18 +176,11 @@ function ProfileSettings({ profile, onClose }: { profile: MessengerProfile; onCl
         <div className="p-6 space-y-5">
           {/* Avatar */}
           <div className="flex flex-col items-center">
-            <div 
-              className="w-24 h-24 rounded-full bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 flex items-center justify-center text-3xl font-bold shadow-xl cursor-pointer overflow-hidden mb-3"
+            <AvatarPreview
+              avatarData={avatarData}
+              displayName={displayName}
               onClick={() => fileInputRef.current?.click()}
-            >
-              {avatarData && !avatarData.startsWith('http') ? (
-                <img src={avatarData} alt="Avatar" className="w-full h-full object-cover" />
-              ) : avatarData ? (
-                <img src={avatarData} alt="Avatar" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).src = ''; }} />
-              ) : (
-                displayName.charAt(0).toUpperCase()
-              )}
-            </div>
+            />
             <input
               ref={fileInputRef}
               type="file"
@@ -249,16 +285,12 @@ function SetupProfileScreen({ error, onError }: { error: string; onError: (error
           {/* Avatar */}
           <div className="relative px-8 -mt-16 mb-6">
             <div className="relative inline-block">
-              <div 
-                className="w-32 h-32 rounded-full bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 flex items-center justify-center text-5xl font-bold shadow-2xl cursor-pointer overflow-hidden"
+              <AvatarPreview
+                avatarData={avatarData}
+                displayName={displayName || "?"}
+                size="xl"
                 onClick={() => fileInputRef.current?.click()}
-              >
-                {avatarData ? (
-                  <img src={avatarData} alt="Avatar" className="w-full h-full object-cover" />
-                ) : (
-                  displayName.charAt(0).toUpperCase() || "?"
-                )}
-              </div>
+              />
               <input
                 ref={fileInputRef}
                 type="file"
@@ -266,7 +298,7 @@ function SetupProfileScreen({ error, onError }: { error: string; onError: (error
                 onChange={handleAvatarChange}
                 className="hidden"
               />
-              <button 
+              <button
                 className="absolute bottom-0 right-0 w-10 h-10 bg-blue-600 hover:bg-blue-500 rounded-full flex items-center justify-center shadow-lg transition-colors"
                 onClick={() => fileInputRef.current?.click()}
               >
@@ -693,15 +725,11 @@ function AddContactModal({ onClose, onAdd, profile }: {
                       : "bg-slate-800/50 border-slate-700 hover:border-slate-600"
                   }`}
                 >
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 flex items-center justify-center text-white font-semibold text-sm flex-shrink-0">
-                    {user.avatar_url && !user.avatar_url.startsWith('http') ? (
-                      <img src={user.avatar_url} alt={user.display_name} className="w-full h-full object-cover rounded-full" />
-                    ) : user.avatar_url ? (
-                      <img src={user.avatar_url} alt={user.display_name} className="w-full h-full object-cover rounded-full" onError={(e) => { (e.target as HTMLImageElement).src = ''; }} />
-                    ) : (
-                      user.display_name.charAt(0).toUpperCase()
-                    )}
-                  </div>
+                  <AvatarPreview
+                    avatarData={user.avatar_url}
+                    displayName={user.display_name}
+                    size="sm"
+                  />
                   <div className="flex-1 text-left min-w-0">
                     <p className="font-medium text-white truncate text-sm">{user.display_name}</p>
                     <p className="text-xs text-slate-400 truncate">@{user.messenger_id}</p>
@@ -748,15 +776,11 @@ function AddContactModal({ onClose, onAdd, profile }: {
           {selectedUser && (
             <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700 mb-4">
               <div className="flex items-center gap-3 mb-3">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 flex items-center justify-center text-white font-semibold text-sm">
-                  {selectedUser.avatar_url && !selectedUser.avatar_url.startsWith('http') ? (
-                    <img src={selectedUser.avatar_url} alt={selectedUser.display_name} className="w-full h-full object-cover rounded-full" />
-                  ) : selectedUser.avatar_url ? (
-                    <img src={selectedUser.avatar_url} alt={selectedUser.display_name} className="w-full h-full object-cover rounded-full" onError={(e) => { (e.target as HTMLImageElement).src = ''; }} />
-                  ) : (
-                    selectedUser.display_name.charAt(0).toUpperCase()
-                  )}
-                </div>
+                <AvatarPreview
+                  avatarData={selectedUser.avatar_url}
+                  displayName={selectedUser.display_name}
+                  size="sm"
+                />
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-white text-sm">{selectedUser.display_name}</p>
                   <p className="text-xs text-slate-400">@{selectedUser.messenger_id}</p>

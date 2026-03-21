@@ -12,6 +12,7 @@ use tokio_tungstenite::{
     accept_async,
     tungstenite::Message,
 };
+use uuid::Uuid;
 
 use crate::auth::{self, User};
 use crate::messenger;
@@ -308,7 +309,7 @@ async fn handle_connection(
                             Some(ref user) => {
                                 match messenger::create_conversation(
                                     &pool,
-                                    user,
+                                    &user.id,
                                     user_ids,
                                     name,
                                     is_group,
@@ -354,12 +355,11 @@ async fn handle_connection(
                                 let before_ts = before.and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
                                     .map(|dt| dt.with_timezone(&chrono::Utc));
 
-                                match messenger::get_conversation_messages(
+                                match messenger::fetch_conversation_messages(
                                     &pool,
                                     &conversation_id,
                                     &user.id,
                                     limit_val,
-                                    before_ts,
                                 ).await {
                                     Ok(messages) => {
                                         let has_more = messages.len() as i32 >= limit_val;
@@ -386,26 +386,27 @@ async fn handle_connection(
                     }) => {
                         match current_user {
                             Some(ref user) => {
-                                match messenger::send_message(
+                                match messenger::send_message_full(
                                     &pool,
-                                    user,
+                                    &user.id,
                                     &conversation_id,
-                                    content,
+                                    &content,
                                     message_type,
                                     media_url,
                                     reply_to_id,
                                 ).await {
                                     Ok(message) => {
-                                        // Отправляем сообщение всем участникам чата
                                         let msg_json = serde_json::to_string(&WsMessage::MessageReceived {
                                             message: message.clone()
                                         }).unwrap_or_default();
 
+                                        // Отправляем сообщение всем участникам КРОМЕ отправителя
                                         messenger::broadcast_to_conversation(
                                             &connections,
                                             &conversation_id,
                                             &pool,
                                             &msg_json,
+                                            &user.id,
                                         ).await;
 
                                         WsMessage::MessageSent { message }
@@ -422,33 +423,17 @@ async fn handle_connection(
                             },
                         }
                     }
-                    Ok(WsMessage::MarkAsRead { conversation_id, message_ids }) => {
+                    Ok(WsMessage::MarkAsRead { conversation_id, message_ids: _ }) => {
                         match current_user {
                             Some(ref user) => {
-                                match messenger::mark_messages_as_read(
+                                match messenger::mark_messages_read_internal(
                                     &pool,
-                                    &user.id,
                                     &conversation_id,
-                                    &message_ids,
+                                    &user.id,
                                 ).await {
                                     Ok(()) => {
-                                        // Уведомляем других участников о прочтении
-                                        for msg_id in &message_ids {
-                                            let receipt_json = serde_json::to_string(&WsMessage::MessageRead {
-                                                message_id: msg_id.clone(),
-                                                user_id: user.id.clone(),
-                                                read_at: chrono::Utc::now().to_rfc3339(),
-                                            }).unwrap_or_default();
-
-                                            messenger::broadcast_to_conversation(
-                                                &connections,
-                                                &conversation_id,
-                                                &pool,
-                                                &receipt_json,
-                                            ).await;
-                                        }
                                         WsMessage::MessageRead {
-                                            message_id: message_ids.first().cloned().unwrap_or_default(),
+                                            message_id: conversation_id.clone(),
                                             user_id: user.id.clone(),
                                             read_at: chrono::Utc::now().to_rfc3339(),
                                         }
@@ -479,6 +464,7 @@ async fn handle_connection(
                                     &conversation_id,
                                     &pool,
                                     &typing_json,
+                                    &user.id,
                                 ).await;
 
                                 continue; // Не отправляем ответ отправителю
@@ -502,6 +488,7 @@ async fn handle_connection(
                                     &conversation_id,
                                     &pool,
                                     &stop_typing_json,
+                                    &user.id,
                                 ).await;
 
                                 continue; // Не отправляем ответ отправителю
@@ -619,10 +606,21 @@ async fn handle_connection(
                     Ok(WsMessage::RespondToFriendRequest { request_id, accept }) => {
                         match current_user {
                             Some(ref user) => {
-                                match messenger::respond_to_friend_request(&pool, &user.id, &request_id, accept).await {
-                                    Ok(()) => WsMessage::FriendRequestResponded { request_id, accepted: accept },
+                                // Парсим request_id из String в Uuid
+                                let req_uuid = Uuid::parse_str(&request_id)
+                                    .map_err(|e| anyhow::anyhow!("Invalid request_id: {}", e));
+                                match req_uuid {
+                                    Ok(req_uuid) => {
+                                        match messenger::respond_to_friend_request(&pool, &user.id, &req_uuid, accept).await {
+                                            Ok(()) => WsMessage::FriendRequestResponded { request_id, accepted: accept },
+                                            Err(e) => WsMessage::Error {
+                                                code: "respond_error".to_string(),
+                                                message: e.to_string(),
+                                            },
+                                        }
+                                    },
                                     Err(e) => WsMessage::Error {
-                                        code: "respond_error".to_string(),
+                                        code: "invalid_id".to_string(),
                                         message: e.to_string(),
                                     },
                                 }
@@ -653,7 +651,7 @@ async fn handle_connection(
                     Ok(WsMessage::UpdateProfile { display_name, avatar_url, about }) => {
                         match current_user {
                             Some(ref user) => {
-                                match messenger::update_messenger_profile(
+                                match messenger::update_profile(
                                     &pool,
                                     &user.id,
                                     display_name.as_deref(),

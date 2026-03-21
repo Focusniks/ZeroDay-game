@@ -21,8 +21,8 @@ const STORAGE_USER_KEY = "zeroday.user";
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-// Локальный WebSocket сервер
-const DEFAULT_WS_URL = "ws://127.0.0.1:8080";
+// WebSocket URL из .env или значение по умолчанию
+const DEFAULT_WS_URL = import.meta.env.VITE_WS_URL || "ws://127.0.0.1:8080";
 
 function normalizeWsUrl(url: string): string {
   // Windows часто резолвит `localhost` в IPv6 (::1), а backend может слушать только IPv4.

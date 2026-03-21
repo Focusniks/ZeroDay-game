@@ -4,10 +4,6 @@ import { useWindowFrame } from "../window/useWindowFrame";
 import { playWindowClose, playWindowMaximize, playWindowMinimize, playWindowRestore } from "../../lib/osSounds";
 import { themeIconUrl } from "../../lib/themeIcons";
 import { useAuth } from "../../hooks/useAuth";
-import { MessengerWeb } from "../../pages/MessengerPage";
-import { CryptoWalletSite } from "../../pages/CryptoWalletSite";
-import { HostingSite, hostingSites } from "../../pages/HostingSites";
-import { ISPSite, ispSites } from "../../pages/ISPSites";
 import { ExternalLink } from "lucide-react";
 
 type Props = {
@@ -1115,15 +1111,16 @@ export function ZeroBrowser({
           </div>
         );
       }
-      const hostingId = activeTab.url.split("/")[2];
-      const hosting = hostingSites[hostingId as keyof typeof hostingSites];
-      if (hosting) {
-        return (
-          <div className="h-full overflow-y-auto">
-            <HostingSite {...hosting} />
-          </div>
-        );
-      }
+      return (
+        <div className="h-full">
+          <iframe
+            src="http://127.0.0.1:8000/sites/hosting"
+            className="w-full h-full border-0"
+            title="Hosting Provider"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-local-storage allow-modals"
+          />
+        </div>
+      );
     }
 
     // ISP sites - требуют подключения к сети
@@ -1141,15 +1138,16 @@ export function ZeroBrowser({
           </div>
         );
       }
-      const ispId = activeTab.url.split("/")[2];
-      const isp = ispSites[ispId as keyof typeof ispSites];
-      if (isp) {
-        return (
-          <div className="h-full overflow-y-auto">
-            <ISPSite {...isp} />
-          </div>
-        );
-      }
+      return (
+        <div className="h-full">
+          <iframe
+            src="http://127.0.0.1:8000/sites/isp"
+            className="w-full h-full border-0"
+            title="ISP Provider"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-local-storage allow-modals"
+          />
+        </div>
+      );
     }
 
     // Crypto wallet - требует подключения к сети
@@ -1168,8 +1166,13 @@ export function ZeroBrowser({
         );
       }
       return (
-        <div className="h-full overflow-y-auto">
-          <CryptoWalletSite />
+        <div className="h-full">
+          <iframe
+            src="http://127.0.0.1:8000/sites/crypto"
+            className="w-full h-full border-0"
+            title="Crypto Wallet"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-local-storage allow-modals"
+          />
         </div>
       );
     }
@@ -1189,9 +1192,16 @@ export function ZeroBrowser({
           </div>
         );
       }
+      // Получаем токен из localStorage игры
+      const token = typeof window !== 'undefined' ? localStorage.getItem('zeroday.token') : null;
       return (
         <div className="h-full">
-          <MessengerWeb />
+          <iframe
+            src={`http://127.0.0.1:8000/sites/messenger?token=${token || ''}`}
+            className="w-full h-full border-0"
+            title="ZeroDay Messenger"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-local-storage allow-modals allow-popups"
+          />
         </div>
       );
     }
@@ -1426,8 +1436,8 @@ export function ZeroBrowser({
             disabled={historyIndex <= 0}
             className="p-2 rounded-lg text-slate-400 hover:bg-slate-700/50 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all"
           >
-            <svg className="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
             </svg>
           </button>
           <button
@@ -1436,8 +1446,8 @@ export function ZeroBrowser({
             disabled={historyIndex >= history.length - 1}
             className="p-2 rounded-lg text-slate-400 hover:bg-slate-700/50 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all"
           >
-            <svg className="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
             </svg>
           </button>
           <button
@@ -1446,8 +1456,8 @@ export function ZeroBrowser({
             className="p-2 rounded-lg text-slate-400 hover:bg-slate-700/50 hover:text-white transition-all"
             title={lang === "ru" ? "Домой" : "Home"}
           >
-            <svg className="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
             </svg>
           </button>
           <button
@@ -1455,8 +1465,8 @@ export function ZeroBrowser({
             onClick={() => navigateTo(activeTab?.url || "zeroday://home")}
             className="p-2 rounded-lg text-slate-400 hover:bg-slate-700/50 hover:text-white transition-all"
           >
-            <svg className="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
           </button>
         </div>

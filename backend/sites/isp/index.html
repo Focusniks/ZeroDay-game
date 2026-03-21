@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ISP Provider - ZeroDay</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: #f1f5f9;
+            min-height: 100vh;
+        }
+        .status-bar {
+            height: 4px;
+            background: #ef4444;
+            transition: background 0.3s;
+        }
+        .status-bar.connected {
+            background: #22c55e;
+        }
+        .hero {
+            padding: 60px 20px;
+            background: linear-gradient(135deg, #3b82f6, #06b6d4);
+            position: relative;
+        }
+        .hero-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+        .hero-title {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        .hero-title h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+        }
+        .hero-title .icon {
+            font-size: 3rem;
+        }
+        .hero-description {
+            font-size: 1.1rem;
+            opacity: 0.9;
+            max-width: 500px;
+        }
+        .connection-status {
+            text-align: right;
+        }
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            justify-content: flex-end;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #ef4444;
+            animation: pulse 2s infinite;
+        }
+        .status-dot.connected {
+            background: #22c55e;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .ip-address {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 0.9rem;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 60px;
+        }
+        .stat {
+            background: rgba(30, 41, 59, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 24px;
+            text-align: center;
+            backdrop-filter: blur(10px);
+        }
+        .stat-icon {
+            font-size: 2rem;
+            margin-bottom: 12px;
+        }
+        .stat-label {
+            color: #94a3b8;
+            font-size: 0.85rem;
+            margin-bottom: 8px;
+        }
+        .stat-value {
+            font-size: 1.8rem;
+            font-weight: 700;
+        }
+        .plans-title {
+            text-align: center;
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 40px;
+        }
+        .plans {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 24px;
+        }
+        .plan {
+            background: rgba(30, 41, 59, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            padding: 32px;
+            position: relative;
+            backdrop-filter: blur(10px);
+            transition: transform 0.2s, border-color 0.2s;
+        }
+        .plan:hover {
+            transform: translateY(-4px);
+            border-color: rgba(59, 130, 246, 0.5);
+        }
+        .plan.popular {
+            border-color: #3b82f6;
+        }
+        .popular-badge {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            background: linear-gradient(135deg, #3b82f6, #06b6d4);
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .plan-name {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .plan-price {
+            font-size: 3rem;
+            font-weight: 700;
+            margin-bottom: 24px;
+        }
+        .plan-price span {
+            font-size: 1rem;
+            color: #94a3b8;
+        }
+        .plan-speed {
+            display: inline-block;
+            background: linear-gradient(135deg, #3b82f6, #06b6d4);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: 600;
+            margin-bottom: 24px;
+        }
+        .plan-features {
+            list-style: none;
+            margin-bottom: 32px;
+        }
+        .plan-features li {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .plan-features li:last-child {
+            border-bottom: none;
+        }
+        .check {
+            color: #22c55e;
+            font-weight: bold;
+        }
+        .plan-btn {
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, #3b82f6, #06b6d4);
+            border: none;
+            border-radius: 12px;
+            color: white;
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .plan-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(59, 130, 246, 0.3);
+        }
+        .plan-btn.connected {
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+        }
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 16px 24px;
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            color: white;
+            border-radius: 12px;
+            font-weight: 500;
+            animation: slideIn 0.3s ease-out;
+            z-index: 1001;
+        }
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        .free-badge {
+            display: inline-block;
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: 600;
+            margin-top: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div class="status-bar" id="status-bar"></div>
+    <div id="app"></div>
+
+    <script>
+        // Конфигурация ISP провайдеров
+        const ispConfigs = {
+            freenet: {
+                name: "FreeNet",
+                gradient: "linear-gradient(135deg, #3b82f6, #06b6d4)",
+                description: "Бесплатный интернет для всех. Базовая скорость и ограниченный трафик.",
+                isFree: true,
+                plans: [
+                    { name: "Free", price: 0, speed: "10 Мбит/с", features: ["Неограниченный трафик", "Базовая поддержка", "Реклама в браузере"] }
+                ]
+            },
+            speedmax: {
+                name: "SpeedMax",
+                gradient: "linear-gradient(135deg, #f97316, #ef4444)",
+                description: "Максимальная скорость для геймеров и стримеров",
+                isFree: false,
+                plans: [
+                    { name: "Gamer", price: 499, speed: "100 Мбит/с", features: ["Низкий пинг", "Приоритет трафика", "Игровые серверы"], popular: true },
+                    { name: "Streamer", price: 899, speed: "500 Мбит/с", features: ["4K стриминг", "Выделенная линия", "24/7 поддержка"] },
+                    { name: "Pro", price: 1499, speed: "1 Гбит/с", features: ["Максимальная скорость", "Статический IP", "Выделенный менеджер"] }
+                ]
+            },
+            homenet: {
+                name: "HomeNet",
+                gradient: "linear-gradient(135deg, #a855f7, #ec4899)",
+                description: "Домашний интернет для всей семьи",
+                isFree: false,
+                plans: [
+                    { name: "Start", price: 299, speed: "50 Мбит/с", features: ["Для 1-2 устройств", "Соцсети и видео", "Бесплатный роутер"] },
+                    { name: "Family", price: 599, speed: "200 Мбит/с", features: ["Для 5+ устройств", "4K видео", "Родительский контроль"], popular: true },
+                    { name: "Ultra", price: 999, speed: "500 Мбит/с", features: ["Для умного дома", "Приоритет поддержки", "Антивирус в комплекте"] }
+                ]
+            },
+            fiberoptic: {
+                name: "FiberOptic",
+                gradient: "linear-gradient(135deg, #22c55e, #16a34a)",
+                description: "Оптоволоконное соединение нового поколения",
+                isFree: false,
+                plans: [
+                    { name: "Fiber 100", price: 399, speed: "100 Мбит/с", features: ["Оптоволокно", "Симметричная скорость", "Стабильное соединение"] },
+                    { name: "Fiber 500", price: 799, speed: "500 Мбит/с", features: ["Гигабитный порт", "TV в подарок", "Облачное хранилище"], popular: true },
+                    { name: "Fiber 1000", price: 1299, speed: "1 Гбит/с", features: ["10 Гбит порт", "Умный дом", "Персональный IP"] }
+                ]
+            }
+        };
+
+        let isConnected = false;
+        let selectedPlan = null;
+
+        function getIspId() {
+            const url = new URL(window.location.href);
+            const pathParts = url.pathname.split('/').filter(p => p);
+            return pathParts[1] || 'freenet';
+        }
+
+        function updateConnectionStatus() {
+            const savedConnection = localStorage.getItem('zeroday.internet');
+            if (savedConnection) {
+                const data = JSON.parse(savedConnection);
+                isConnected = data.connected || false;
+                selectedPlan = data.plan || null;
+            }
+            
+            const statusBar = document.getElementById('status-bar');
+            if (statusBar) {
+                statusBar.classList.toggle('connected', isConnected);
+            }
+        }
+
+        function showNotification(message) {
+            const existing = document.querySelector('.notification');
+            if (existing) existing.remove();
+            
+            const notification = document.createElement('div');
+            notification.className = 'notification';
+            notification.textContent = message;
+            document.body.appendChild(notification);
+            
+            setTimeout(() => notification.remove(), 3000);
+        }
+
+        function generateIP() {
+            return `10.0.0.${Math.floor(Math.random() * 255)}`;
+        }
+
+        function generatePing() {
+            return Math.floor(Math.random() * 20 + 5);
+        }
+
+        function connect(plan) {
+            isConnected = true;
+            selectedPlan = plan;
+            localStorage.setItem('zeroday.internet', JSON.stringify({
+                connected: true,
+                plan: plan,
+                ip: generateIP(),
+                connectedAt: new Date().toISOString()
+            }));
+            updateConnectionStatus();
+            render();
+            showNotification(`✓ Подключено к ${plan.name}!`);
+        }
+
+        function disconnect() {
+            isConnected = false;
+            selectedPlan = null;
+            localStorage.setItem('zeroday.internet', JSON.stringify({
+                connected: false,
+                plan: null,
+                disconnectedAt: new Date().toISOString()
+            }));
+            updateConnectionStatus();
+            render();
+            showNotification('Интернет отключён');
+        }
+
+        function render() {
+            const ispId = getIspId();
+            const config = ispConfigs[ispId] || ispConfigs.freenet;
+
+            document.getElementById('app').innerHTML = `
+                <div class="hero" style="background: ${config.gradient}">
+                    <div class="hero-content">
+                        <div class="hero-title">
+                            <span class="icon">📡</span>
+                            <div>
+                                <h1>${config.name}</h1>
+                                <p class="hero-description">${config.description}</p>
+                                ${config.isFree ? '<span class="free-badge">✓ Бесплатно</span>' : ''}
+                            </div>
+                        </div>
+                        <div class="connection-status">
+                            <div class="status-badge">
+                                <div class="status-dot ${isConnected ? 'connected' : ''}"></div>
+                                <span>${isConnected ? 'Подключено' : 'Не подключено'}</span>
+                            </div>
+                            ${isConnected ? `
+                                <div class="ip-address">IP: ${generateIP()}</div>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="container">
+                    <div class="stats">
+                        <div class="stat">
+                            <div class="stat-icon">⚡</div>
+                            <div class="stat-label">Скорость</div>
+                            <div class="stat-value">${isConnected && selectedPlan ? selectedPlan.speed : '—'}</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-icon">🌐</div>
+                            <div class="stat-label">Пинг</div>
+                            <div class="stat-value">${isConnected ? `${generatePing()} ms` : '—'}</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-icon">🛡️</div>
+                            <div class="stat-label">Статус</div>
+                            <div class="stat-value">${isConnected ? 'Активен' : 'Оффлайн'}</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-icon">📊</div>
+                            <div class="stat-label">Трафик</div>
+                            <div class="stat-value">${isConnected ? '∞' : '0'}</div>
+                        </div>
+                    </div>
+
+                    ${!config.isFree ? `
+                        <h2 class="plans-title">Тарифные планы</h2>
+                        <div class="plans">
+                            ${config.plans.map((plan, index) => `
+                                <div class="plan ${plan.popular ? 'popular' : ''}">
+                                    ${plan.popular ? '<span class="popular-badge">Популярный</span>' : ''}
+                                    <div class="plan-name">${plan.name}</div>
+                                    <div class="plan-price">$${plan.price}<span>/мес</span></div>
+                                    <div class="plan-speed">⚡ ${plan.speed}</div>
+                                    <ul class="plan-features">
+                                        ${plan.features.map(f => `<li><span class="check">✓</span> ${f}</li>`).join('')}
+                                    </ul>
+                                    <button class="plan-btn ${isConnected && selectedPlan?.name === plan.name ? 'connected' : ''}" 
+                                            onclick="${isConnected && selectedPlan?.name === plan.name ? 'disconnect()' : `connectToPlan('${plan.name}', ${plan.price})`}">
+                                        ${isConnected && selectedPlan?.name === plan.name ? '✓ Активен' : isConnected ? 'Сменить план' : 'Подключить'}
+                                    </button>
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : `
+                        <div style="text-align: center; padding: 60px 20px;">
+                            <button class="plan-btn ${isConnected ? 'connected' : ''}" 
+                                    onclick="${isConnected ? 'disconnect()' : `connectToPlan('${config.plans[0].name}', 0)`}"
+                                    style="max-width: 300px; padding: 20px 40px; font-size: 1.2rem;">
+                                ${isConnected ? '✓ Вы подключены' : '🚀 Подключиться бесплатно'}
+                            </button>
+                            ${isConnected ? `
+                                <p style="margin-top: 20px; color: #94a3b8;">
+                                    Скорость: <strong>${config.plans[0].speed}</strong> | 
+                                    IP: <strong>${generateIP()}</strong>
+                                </p>
+                            ` : ''}
+                        </div>
+                    `}
+                </div>
+            `;
+        }
+
+        window.connectToPlan = function(planName, price) {
+            const plan = { name: planName, price: price };
+            
+            if (price > 0) {
+                // Показываем модальное окно оплаты (упрощённо)
+                if (confirm(`Подключить ${planName} за $${price}?`)) {
+                    connect(plan);
+                }
+            } else {
+                connect(plan);
+            }
+        };
+
+        // Initialize
+        updateConnectionStatus();
+        render();
+
+        // Обновляем пинг каждые 5 секунд
+        setInterval(() => {
+            if (isConnected) {
+                const statValue = document.querySelector('.stat:nth-child(2) .stat-value');
+                if (statValue) statValue.textContent = `${generatePing()} ms`;
+            }
+        }, 5000);
+    </script>
+</body>
+</html>

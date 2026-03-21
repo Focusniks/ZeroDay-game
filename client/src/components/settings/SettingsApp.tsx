@@ -57,7 +57,8 @@ export function SettingsApp({
   const { config, patchConfig } = useGameConfig();
   const { user } = useAuth();
 
-  const DEFAULT_WS_URL = "ws://127.0.0.1:8080";
+  // WebSocket URL из .env или значение по умолчанию
+  const DEFAULT_WS_URL = import.meta.env.VITE_WS_URL || "ws://127.0.0.1:8080";
   const [wsUrlDraft, setWsUrlDraft] = useState<string>(config.wsUrl ?? DEFAULT_WS_URL);
   useEffect(() => {
     setWsUrlDraft(config.wsUrl ?? DEFAULT_WS_URL);

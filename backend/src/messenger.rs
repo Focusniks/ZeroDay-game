@@ -1,985 +1,275 @@
-use anyhow::{anyhow, Context};
-use chrono::{DateTime, Utc};
+//! Мессенджер - модели и функции
+//! Работает с таблицами: messenger_profiles, messenger_contacts, friend_requests,
+//! conversations, conversation_members, messages, message_read_receipts
+
 use serde::{Deserialize, Serialize};
-use serde_json::Value as JsonValue;
-use sqlx::{FromRow, PgPool};
-use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::RwLock;
+use sqlx::{PgPool, FromRow};
 use uuid::Uuid;
+use chrono::{DateTime, Utc};
 
-use crate::auth::User;
+// ==================== МОДЕЛИ ====================
 
-/// Менеджер активных WebSocket подключений пользователей
-pub type ActiveConnections = Arc<RwLock<HashMap<String, tokio::sync::mpsc::UnboundedSender<String>>>>;
-
-// ==================== Профиль ====================
-
+/// Профиль пользователя в мессенджере
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct MessengerProfile {
     pub id: Uuid,
-    #[sqlx(default)]
-    pub user_id: Option<Uuid>,
+    pub user_id: Uuid,
     pub messenger_id: String,
     pub display_name: String,
     pub avatar_url: Option<String>,
     pub about: Option<String>,
-    pub privacy_settings: Option<JsonValue>,
     pub is_setup_complete: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
+/// Контакт/друг
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Contact {
     pub id: Uuid,
-    pub owner_user_id: Uuid,
     pub contact_user_id: Uuid,
-    pub status: String,
-    pub custom_name: Option<String>,
-    pub created_at: DateTime<Utc>,
-    // Из профиля контакта
-    pub contact_display_name: Option<String>,
+    pub contact_display_name: String,
+    pub contact_messenger_id: String,
     pub contact_avatar_url: Option<String>,
-    pub contact_messenger_id: Option<String>,
-    pub contact_about: Option<String>,
+    pub custom_name: Option<String>,
     pub is_online: bool,
+    pub added_at: DateTime<Utc>,
 }
 
+/// Запрос в друзья
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct FriendRequest {
     pub id: Uuid,
     pub sender_user_id: Uuid,
-    pub receiver_user_id: Uuid,
-    pub status: String,
-    pub created_at: DateTime<Utc>,
-    pub responded_at: Option<DateTime<Utc>>,
-    // Из профиля отправителя
-    pub sender_display_name: Option<String>,
+    pub sender_display_name: String,
+    pub sender_messenger_id: String,
     pub sender_avatar_url: Option<String>,
-    pub sender_messenger_id: Option<String>,
+    pub created_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum MessengerMessage {
-    // Запросы от клиента
-    CreateConversation {
-        user_ids: Vec<String>,
-        name: Option<String>,
-        is_group: bool,
-    },
-    GetConversations,
-    GetMessages {
-        conversation_id: String,
-        limit: Option<i32>,
-        before: Option<String>,
-    },
-    SendMessage {
-        conversation_id: String,
-        content: String,
-        message_type: Option<String>,
-        media_url: Option<String>,
-        reply_to_id: Option<String>,
-    },
-    MarkAsRead {
-        conversation_id: String,
-        message_ids: Vec<String>,
-    },
-    TypingStart {
-        conversation_id: String,
-    },
-    TypingStop {
-        conversation_id: String,
-    },
-    
-    // Ответы сервера
-    ConversationCreated {
-        conversation: Conversation,
-    },
-    ConversationsList {
-        conversations: Vec<ConversationWithLastMessage>,
-    },
-    MessagesList {
-        messages: Vec<Message>,
-        has_more: bool,
-    },
-    MessageSent {
-        message: Message,
-    },
-    MessageReceived {
-        message: Message,
-    },
-    MessageRead {
-        message_id: String,
-        user_id: String,
-        read_at: DateTime<Utc>,
-    },
-    UserTyping {
-        conversation_id: String,
-        user_id: String,
-        username: String,
-    },
-    UserStoppedTyping {
-        conversation_id: String,
-        user_id: String,
-    },
-    Error {
-        code: String,
-        message: String,
-    },
-}
-
+/// Чат (конверсация) - упрощённая версия без nested типов
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Conversation {
-    pub id: String,
+    pub id: Uuid,
     pub name: Option<String>,
     pub avatar_url: Option<String>,
-    pub created_by: Option<String>,
+    pub created_by: Option<Uuid>,
     pub is_group: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    // Дополнительные поля для клиента
-    #[sqlx(skip)]
-    pub other_user: Option<OtherUserInfo>,
-    #[sqlx(skip)]
-    pub last_message: Option<LastMessageInfo>,
-    #[sqlx(skip)]
-    pub unread_count: i32,
 }
 
+/// Конверсация с последним сообщением (для списка)
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConversationWithLastMessage {
+    pub id: Uuid,
+    pub name: Option<String>,
+    pub avatar_url: Option<String>,
+    pub created_by: Option<Uuid>,
+    pub is_group: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub last_message: Option<LastMessageInfo>,
+    pub unread_count: i64,
+}
+
+/// Информация о другом пользователе в чате
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct OtherUserInfo {
-    pub id: String,
+    pub id: Uuid,
     pub username: String,
     pub avatar_url: Option<String>,
     pub is_online: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Последнее сообщение в чате
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct LastMessageInfo {
-    pub id: String,
+    pub id: Uuid,
     pub content: String,
-    pub sender_id: String,
-    pub sender_username: String,
+    pub sender_id: Uuid,
+    pub sender_username: Option<String>,
     pub created_at: DateTime<Utc>,
-    pub message_type: String,
 }
 
+/// Сообщение
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Message {
-    pub id: String,
-    pub conversation_id: String,
-    pub sender_id: String,
-    pub sender_username: Option<String>,
+    pub id: Uuid,
+    pub conversation_id: Uuid,
+    pub sender_id: Uuid,
     pub content: String,
     pub message_type: String,
-    pub media_url: Option<String>,
-    pub media_metadata: Option<serde_json::Value>,
-    pub reply_to_id: Option<String>,
-    pub edited: bool,
-    pub deleted: bool,
     pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    
+    #[sqlx(default)]
+    pub sender_username: Option<String>,
+    
+    #[sqlx(default)]
     pub is_read: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct ConversationWithLastMessage {
-    pub id: String,
-    pub name: Option<String>,
-    pub avatar_url: Option<String>,
-    pub created_by: Option<String>,
-    pub is_group: bool,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    pub last_message_id: Option<String>,
-    pub last_message_content: Option<String>,
-    pub last_message_sender_id: Option<String>,
-    pub last_message_sender_username: Option<String>,
-    pub last_message_created_at: Option<DateTime<Utc>>,
-    pub last_message_type: Option<String>,
-    pub unread_count: i64,
-    pub other_user_id: Option<String>,
-    pub other_user_username: Option<String>,
-    pub other_user_avatar_url: Option<String>,
-}
+// ==================== ФУНКЦИИ ====================
 
-/// Создать новый чат (личный или групповой)
-pub async fn create_conversation(
-    pool: &PgPool,
-    current_user: &User,
-    user_ids: Vec<String>,
-    name: Option<String>,
-    is_group: bool,
-) -> anyhow::Result<Conversation> {
-    if user_ids.is_empty() {
-        return Err(anyhow!("Необходимо указать хотя бы одного участника"));
-    }
-
-    // Для личных чатов проверяем, нет ли уже существующего
-    if !is_group && user_ids.len() == 1 {
-        if let Some(existing) = find_existing_direct_conversation(pool, &current_user.id, &user_ids[0]).await? {
-            return Ok(existing);
-        }
-    }
-
-    let mut tx = pool.begin().await?;
-    
-    let conversation_id = Uuid::new_v4();
-    
-    sqlx::query(
-        r#"
-        INSERT INTO conversations (id, name, created_by, is_group)
-        VALUES ($1, $2, $3, $4)
-        "#,
-    )
-    .bind(conversation_id)
-    .bind(&name)
-    .bind(&current_user.id)
-    .bind(is_group)
-    .execute(&mut *tx)
-    .await?;
-
-    // Добавляем создателя как участника
-    sqlx::query(
-        r#"
-        INSERT INTO conversation_members (conversation_id, user_id, role)
-        VALUES ($1, $2, 'admin')
-        "#,
-    )
-    .bind(conversation_id)
-    .bind(&current_user.id)
-    .execute(&mut *tx)
-    .await?;
-
-    // Добавляем остальных участников
-    for user_id in &user_ids {
-        let uuid = Uuid::parse_str(user_id)
-            .with_context(|| format!("Неверный формат user_id: {}", user_id))?;
-        
-        sqlx::query(
-            r#"
-            INSERT INTO conversation_members (conversation_id, user_id)
-            VALUES ($1, $2)
-            ON CONFLICT (conversation_id, user_id) DO NOTHING
-            "#,
-        )
-        .bind(conversation_id)
-        .bind(uuid)
-        .execute(&mut *tx)
-        .await?;
-    }
-
-    tx.commit().await?;
-
-    // Получаем полный объект чата
-    get_conversation_by_id(pool, &conversation_id.to_string(), &current_user.id).await?
-        .ok_or_else(|| anyhow!("Не удалось получить созданный чат"))
-}
-
-/// Найти существующий личный чат между двумя пользователями
-async fn find_existing_direct_conversation(
-    pool: &PgPool,
-    user1_id: &str,
-    user2_id: &str,
-) -> anyhow::Result<Option<Conversation>> {
-    let conv = sqlx::query_as::<_, Conversation>(
-        r#"
-        SELECT c.id, c.name, c.avatar_url, c.created_by, c.is_group, c.created_at, c.updated_at
-        FROM conversations c
-        JOIN conversation_members cm1 ON c.id = cm1.conversation_id
-        JOIN conversation_members cm2 ON c.id = cm2.conversation_id
-        WHERE c.is_group = false
-          AND cm1.user_id = $1
-          AND cm2.user_id = $2
-        LIMIT 1
-        "#,
-    )
-    .bind(user1_id)
-    .bind(user2_id)
-    .fetch_optional(pool)
-    .await?;
-
-    Ok(conv)
-}
-
-/// Получить чат по ID
-pub async fn get_conversation_by_id(
-    pool: &PgPool,
-    conversation_id: &str,
-    current_user_id: &str,
-) -> anyhow::Result<Option<Conversation>> {
-    let mut conv = sqlx::query_as::<_, Conversation>(
-        r#"
-        SELECT c.id, c.name, c.avatar_url, c.created_by, c.is_group, c.created_at, c.updated_at
-        FROM conversations c
-        JOIN conversation_members cm ON c.id = cm.conversation_id
-        WHERE c.id = $1 AND cm.user_id = $2
-        "#,
-    )
-    .bind(conversation_id)
-    .bind(current_user_id)
-    .fetch_optional(pool)
-    .await?;
-
-    if let Some(ref mut c) = conv {
-        // Получаем информацию о другом пользователе (для личных чатов)
-        if !c.is_group {
-            c.other_user = get_other_user_in_conversation(pool, conversation_id, current_user_id).await?;
-        }
-        
-        // Получаем последнее сообщение
-        c.last_message = get_last_message_info(pool, conversation_id).await?;
-        
-        // Получаем количество непрочитанных
-        c.unread_count = get_unread_count(pool, conversation_id, current_user_id).await?;
-    }
-
-    Ok(conv)
-}
-
-/// Получить информацию о другом пользователе в чате
-async fn get_other_user_in_conversation(
-    pool: &PgPool,
-    conversation_id: &str,
-    current_user_id: &str,
-) -> anyhow::Result<Option<OtherUserInfo>> {
-    let row: Option<(String, String)> = sqlx::query_as(
-        r#"
-        SELECT u.id, u.username
-        FROM users u
-        JOIN conversation_members cm ON u.id = cm.user_id
-        WHERE cm.conversation_id = $1 AND u.id != $2
-        LIMIT 1
-        "#,
-    )
-    .bind(conversation_id)
-    .bind(current_user_id)
-    .fetch_optional(pool)
-    .await?;
-
-    Ok(row.map(|(id, username)| OtherUserInfo {
-        id,
-        username,
-        avatar_url: None,
-        is_online: false,
-    }))
-}
-
-/// Получить информацию о последнем сообщении
-async fn get_last_message_info(
-    pool: &PgPool,
-    conversation_id: &str,
-) -> anyhow::Result<Option<LastMessageInfo>> {
-    let row: Option<(String, String, String, String, DateTime<Utc>, String)> = sqlx::query_as(
-        r#"
-        SELECT m.id, m.content, m.sender_id, u.username, m.created_at, m.message_type
-        FROM messages m
-        JOIN users u ON m.sender_id = u.id
-        WHERE m.conversation_id = $1 AND m.deleted = false
-        ORDER BY m.created_at DESC
-        LIMIT 1
-        "#,
-    )
-    .bind(conversation_id)
-    .fetch_optional(pool)
-    .await?;
-
-    Ok(row.map(|(id, content, sender_id, sender_username, created_at, message_type)| LastMessageInfo {
-        id,
-        content,
-        sender_id,
-        sender_username,
-        created_at,
-        message_type,
-    }))
-}
-
-/// Получить количество непрочитанных сообщений
-async fn get_unread_count(
-    pool: &PgPool,
-    conversation_id: &str,
-    user_id: &str,
-) -> anyhow::Result<i32> {
-    let count = sqlx::query_scalar::<_, i64>(
-        r#"
-        SELECT COUNT(*)::BIGINT
-        FROM messages m
-        JOIN conversation_members cm ON m.conversation_id = cm.conversation_id
-        WHERE m.conversation_id = $1
-          AND m.sender_id != $2
-          AND (cm.last_read_message_at IS NULL OR m.created_at > cm.last_read_message_at)
-          AND m.deleted = false
-        "#,
-    )
-    .bind(conversation_id)
-    .bind(user_id)
-    .fetch_one(pool)
-    .await?;
-
-    Ok(count as i32)
-}
-
-/// Получить список чатов пользователя
-pub async fn get_user_conversations(
-    pool: &PgPool,
-    user_id: &str,
-) -> anyhow::Result<Vec<ConversationWithLastMessage>> {
-    // Парсим user_id из String в Uuid
-    let user_uuid = Uuid::parse_str(user_id)
-        .map_err(|e| anyhow!("Invalid user_id format: {}", e))?;
-
-    let conversations = sqlx::query_as::<_, ConversationWithLastMessage>(
-        r#"
-        SELECT
-            c.id,
-            c.name,
-            c.avatar_url,
-            c.created_by,
-            c.is_group,
-            c.created_at,
-            c.updated_at,
-            lm.last_message_id,
-            lm.last_message_content,
-            lm.last_message_sender_id,
-            lm.last_message_sender_username,
-            lm.last_message_created_at,
-            lm.last_message_type,
-            COALESCE(urc.unread_count, 0) as unread_count,
-            ou.id as other_user_id,
-            ou.username as other_user_username,
-            NULL as other_user_avatar_url
-        FROM conversations c
-        JOIN conversation_members cm ON c.id = cm.conversation_id AND cm.user_id = $1
-        LEFT JOIN LATERAL (
-            SELECT
-                m.id as last_message_id,
-                m.content as last_message_content,
-                m.sender_id as last_message_sender_id,
-                u.username as last_message_sender_username,
-                m.created_at as last_message_created_at,
-                m.message_type as last_message_type
-            FROM messages m
-            JOIN users u ON m.sender_id = u.id
-            WHERE m.conversation_id = c.id AND m.deleted = false
-            ORDER BY m.created_at DESC
-            LIMIT 1
-        ) lm ON true
-        LEFT JOIN LATERAL (
-            SELECT COUNT(*)::BIGINT as unread_count
-            FROM messages m
-            WHERE m.conversation_id = c.id
-              AND m.sender_id != $1
-              AND (cm.last_read_message_at IS NULL OR m.created_at > cm.last_read_message_at)
-              AND m.deleted = false
-        ) urc ON true
-        LEFT JOIN LATERAL (
-            SELECT u.id, u.username
-            FROM users u
-            JOIN conversation_members cm2 ON u.id = cm2.user_id
-            WHERE cm2.conversation_id = c.id AND u.id != $1
-            LIMIT 1
-        ) ou ON true
-        ORDER BY c.updated_at DESC
-        "#,
-    )
-    .bind(user_uuid)
-    .fetch_all(pool)
-    .await?;
-
-    Ok(conversations)
-}
-
-/// Получить сообщения чата
-pub async fn get_conversation_messages(
-    pool: &PgPool,
-    conversation_id: &str,
-    user_id: &str,
-    limit: i32,
-    before: Option<DateTime<Utc>>,
-) -> anyhow::Result<Vec<Message>> {
-    let messages = if let Some(before_ts) = before {
-        sqlx::query_as::<_, Message>(
-            r#"
-            SELECT 
-                m.id,
-                m.conversation_id,
-                m.sender_id,
-                u.username as sender_username,
-                m.content,
-                m.message_type,
-                m.media_url,
-                m.media_metadata,
-                m.reply_to_id,
-                m.edited,
-                m.deleted,
-                m.created_at,
-                EXISTS(
-                    SELECT 1 FROM message_read_receipts mrr 
-                    WHERE mrr.message_id = m.id AND mrr.user_id = $3
-                ) as is_read
-            FROM messages m
-            JOIN users u ON m.sender_id = u.id
-            WHERE m.conversation_id = $1 
-              AND m.created_at < $2
-              AND m.deleted = false
-            ORDER BY m.created_at DESC
-            LIMIT $4
-            "#,
-        )
-        .bind(conversation_id)
-        .bind(before_ts)
-        .bind(user_id)
-        .bind(limit)
-        .fetch_all(pool)
-        .await?
-    } else {
-        sqlx::query_as::<_, Message>(
-            r#"
-            SELECT 
-                m.id,
-                m.conversation_id,
-                m.sender_id,
-                u.username as sender_username,
-                m.content,
-                m.message_type,
-                m.media_url,
-                m.media_metadata,
-                m.reply_to_id,
-                m.edited,
-                m.deleted,
-                m.created_at,
-                EXISTS(
-                    SELECT 1 FROM message_read_receipts mrr 
-                    WHERE mrr.message_id = m.id AND mrr.user_id = $3
-                ) as is_read
-            FROM messages m
-            JOIN users u ON m.sender_id = u.id
-            WHERE m.conversation_id = $1 
-              AND m.deleted = false
-            ORDER BY m.created_at DESC
-            LIMIT $2
-            "#,
-        )
-        .bind(conversation_id)
-        .bind(limit)
-        .bind(user_id)
-        .fetch_all(pool)
-        .await?
-    };
-
-    Ok(messages)
-}
-
-/// Отправить сообщение
-pub async fn send_message(
-    pool: &PgPool,
-    current_user: &User,
-    conversation_id: &str,
-    content: String,
-    message_type: Option<String>,
-    media_url: Option<String>,
-    reply_to_id: Option<String>,
-) -> anyhow::Result<Message> {
-    if content.trim().is_empty() {
-        return Err(anyhow!("Сообщение не может быть пустым"));
-    }
-
-    // Проверяем, что пользователь является участником чата
-    let is_member = sqlx::query_scalar::<_, bool>(
-        r#"
-        SELECT EXISTS(
-            SELECT 1 FROM conversation_members 
-            WHERE conversation_id = $1 AND user_id = $2
-        )
-        "#,
-    )
-    .bind(conversation_id)
-    .bind(&current_user.id)
-    .fetch_one(pool)
-    .await?;
-
-    if !is_member {
-        return Err(anyhow!("Вы не являетесь участником этого чата"));
-    }
-
-    let message_id = Uuid::new_v4();
-    let msg_type = message_type.unwrap_or_else(|| "text".to_string());
-
-    let mut tx = pool.begin().await?;
-
-    // Создаем сообщение
-    sqlx::query(
-        r#"
-        INSERT INTO messages (id, conversation_id, sender_id, content, message_type, media_url, reply_to_id)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        "#,
-    )
-    .bind(message_id)
-    .bind(conversation_id)
-    .bind(&current_user.id)
-    .bind(&content)
-    .bind(&msg_type)
-    .bind(&media_url)
-    .bind(&reply_to_id)
-    .execute(&mut *tx)
-    .await?;
-
-    // Обновляем updated_at у чата
-    sqlx::query(
-        r#"UPDATE conversations SET updated_at = NOW() WHERE id = $1"#,
-    )
-    .bind(conversation_id)
-    .execute(&mut *tx)
-    .await?;
-
-    tx.commit().await?;
-
-    // Получаем созданное сообщение
-    get_message_by_id(pool, &message_id.to_string(), &current_user.id).await?
-        .ok_or_else(|| anyhow!("Не удалось получить созданное сообщение"))
-}
-
-/// Получить сообщение по ID
-async fn get_message_by_id(
-    pool: &PgPool,
-    message_id: &str,
-    user_id: &str,
-) -> anyhow::Result<Option<Message>> {
-    let msg = sqlx::query_as::<_, Message>(
-        r#"
-        SELECT 
-            m.id,
-            m.conversation_id,
-            m.sender_id,
-            u.username as sender_username,
-            m.content,
-            m.message_type,
-            m.media_url,
-            m.media_metadata,
-            m.reply_to_id,
-            m.edited,
-            m.deleted,
-            m.created_at,
-            EXISTS(
-                SELECT 1 FROM message_read_receipts mrr 
-                WHERE mrr.message_id = m.id AND mrr.user_id = $2
-            ) as is_read
-        FROM messages m
-        JOIN users u ON m.sender_id = u.id
-        WHERE m.id = $1
-        "#,
-    )
-    .bind(message_id)
-    .bind(user_id)
-    .fetch_optional(pool)
-    .await?;
-
-    Ok(msg)
-}
-
-/// Отметить сообщения как прочитанные
-pub async fn mark_messages_as_read(
-    pool: &PgPool,
-    user_id: &str,
-    conversation_id: &str,
-    message_ids: &[String],
-) -> anyhow::Result<()> {
-    if message_ids.is_empty() {
-        return Ok(());
-    }
-
-    let mut tx = pool.begin().await?;
-
-    // Добавляем записи о прочтении
-    for msg_id in message_ids {
-        sqlx::query(
-            r#"
-            INSERT INTO message_read_receipts (message_id, user_id)
-            VALUES ($1, $2)
-            ON CONFLICT (message_id, user_id) DO NOTHING
-            "#,
-        )
-        .bind(msg_id)
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
-    }
-
-    // Обновляем last_read_message_at
-    sqlx::query(
-        r#"
-        UPDATE conversation_members 
-        SET last_read_message_at = NOW()
-        WHERE conversation_id = $1 AND user_id = $2
-        "#,
-    )
-    .bind(conversation_id)
-    .bind(user_id)
-    .execute(&mut *tx)
-    .await?;
-
-    tx.commit().await?;
-
-    Ok(())
-}
-
-/// Отправить сообщение всем участникам чата через WebSocket
-pub async fn broadcast_to_conversation(
-    connections: &ActiveConnections,
-    conversation_id: &str,
-    pool: &PgPool,
-    message: &str,
-) {
-    // Получаем всех участников чата
-    let member_ids: Vec<String> = sqlx::query_scalar::<_, String>(
-        r#"SELECT user_id FROM conversation_members WHERE conversation_id = $1"#,
-    )
-    .bind(conversation_id)
-    .fetch_all(pool)
-    .await
-    .unwrap_or_default();
-
-    // Отправляем сообщение каждому участнику
-    let guard = connections.read().await;
-    for user_id in &member_ids {
-        if let Some(sender) = guard.get(user_id) {
-            let _ = sender.send(message.to_string());
-        }
-    }
-}
-
-/// Отправить сообщение конкретному пользователю
-pub fn send_to_user(
-    connections: &ActiveConnections,
-    user_id: &str,
-    message: &str,
-) {
-    tokio::spawn({
-        let connections = Arc::clone(connections);
-        let user_id = user_id.to_string();
-        let message = message.to_string();
-        async move {
-            let guard = connections.read().await;
-            if let Some(sender) = guard.get(&user_id) {
-                let _ = sender.send(message);
-            }
-        }
-    });
-}
-
-/// Обновить статус онлайн пользователя
-pub async fn update_user_online_status(
-    connections: &ActiveConnections,
-    user_id: &str,
-    is_online: bool,
-    pool: &PgPool,
-) {
-    // Получаем все чаты пользователя
-    let conversation_ids: Vec<String> = sqlx::query_scalar::<_, String>(
-        r#"SELECT conversation_id FROM conversation_members WHERE user_id = $1::uuid"#,
-    )
-    .bind(user_id)
-    .fetch_all(pool)
-    .await
-    .unwrap_or_default();
-
-    // Получаем имя пользователя
-    let username: String = sqlx::query_scalar::<_, String>(
-        r#"SELECT username FROM users WHERE id = $1"#,
+/// Получить профиль по user_id
+pub async fn get_profile_by_user_id(pool: &PgPool, user_id: &Uuid) -> Result<Option<MessengerProfile>, sqlx::Error> {
+    sqlx::query_as::<_, MessengerProfile>(
+        r#"SELECT * FROM messenger_profiles WHERE user_id = $1"#
     )
     .bind(user_id)
     .fetch_optional(pool)
     .await
-    .ok()
-    .flatten()
-    .unwrap_or_default();
-
-    let status_msg = if is_online {
-        MessengerMessage::UserTyping {
-            conversation_id: String::new(), // Пустой для статуса онлайн
-            user_id: user_id.to_string(),
-            username: username.clone(),
-        }
-    } else {
-        MessengerMessage::UserStoppedTyping {
-            conversation_id: String::new(),
-            user_id: user_id.to_string(),
-        }
-    };
-
-    if let Ok(json) = serde_json::to_string(&status_msg) {
-        // Отправляем всем участникам чатов
-        for conv_id in &conversation_ids {
-            broadcast_to_conversation(connections, conv_id, pool, &json).await;
-        }
-    }
 }
 
-// ==================== Профиль мессенджера ====================
+/// Получить профиль по messenger_id
+pub async fn get_profile_by_messenger_id(pool: &PgPool, messenger_id: &str) -> Result<Option<MessengerProfile>, sqlx::Error> {
+    sqlx::query_as::<_, MessengerProfile>(
+        r#"SELECT * FROM messenger_profiles WHERE messenger_id = $1"#
+    )
+    .bind(messenger_id)
+    .fetch_optional(pool)
+    .await
+}
 
-/// Создать или обновить профиль мессенджера
-pub async fn setup_messenger_profile(
+/// Создать профиль
+pub async fn create_profile(
     pool: &PgPool,
-    user_id: &str,
+    user_id: &Uuid,
     messenger_id: &str,
     display_name: &str,
     about: Option<&str>,
-) -> anyhow::Result<MessengerProfile> {
-    // Проверяем, не занят ли messenger_id
-    let existing = sqlx::query_scalar::<_, bool>(
-        r#"SELECT EXISTS(SELECT 1 FROM messenger_profiles WHERE messenger_id = $1)"#,
-    )
-    .bind(messenger_id)
-    .fetch_one(pool)
-    .await?;
-
-    if existing {
-        return Err(anyhow!("Это имя мессенджера уже занято"));
-    }
-
-    let profile = sqlx::query_as::<_, MessengerProfile>(
+) -> Result<MessengerProfile, sqlx::Error> {
+    sqlx::query_as::<_, MessengerProfile>(
         r#"
         INSERT INTO messenger_profiles (user_id, messenger_id, display_name, about, is_setup_complete)
-        VALUES ($1::uuid, $2, $3, $4, true)
-        ON CONFLICT (user_id) DO UPDATE SET
-            messenger_id = EXCLUDED.messenger_id,
-            display_name = EXCLUDED.display_name,
-            about = EXCLUDED.about,
-            is_setup_complete = true,
-            updated_at = NOW()
+        VALUES ($1, $2, $3, $4, true)
         RETURNING *
-        "#,
+        "#
     )
     .bind(user_id)
     .bind(messenger_id)
     .bind(display_name)
     .bind(about)
     .fetch_one(pool)
-    .await?;
-
-    Ok(profile)
+    .await
 }
 
-/// Получить профиль мессенджера пользователя
-pub async fn get_messenger_profile(
-    pool: &PgPool,
-    user_id: &str,
-) -> anyhow::Result<Option<MessengerProfile>> {
-    let profile = sqlx::query_as::<_, MessengerProfile>(
-        r#"SELECT * FROM messenger_profiles WHERE user_id = $1::uuid"#,
-    )
-    .bind(user_id)
-    .fetch_optional(pool)
-    .await?;
-
-    Ok(profile)
-}
-
-/// Получить профиль по messenger_id
-pub async fn get_profile_by_messenger_id(
-    pool: &PgPool,
-    messenger_id: &str,
-) -> anyhow::Result<Option<MessengerProfile>> {
-    let profile = sqlx::query_as::<_, MessengerProfile>(
-        r#"SELECT * FROM messenger_profiles WHERE messenger_id = $1"#,
-    )
-    .bind(messenger_id)
-    .fetch_optional(pool)
-    .await?;
-
-    Ok(profile)
-}
-
-/// Обновить профиль мессенджера
-pub async fn update_messenger_profile(
+/// Обновить профиль
+pub async fn update_profile(
     pool: &PgPool,
     user_id: &str,
     display_name: Option<&str>,
     avatar_url: Option<&str>,
     about: Option<&str>,
-) -> anyhow::Result<MessengerProfile> {
-    let mut query = String::from(
-        r#"UPDATE messenger_profiles SET updated_at = NOW()"#,
-    );
-
-    if display_name.is_some() {
-        query.push_str(", display_name = $2");
-    }
-    if avatar_url.is_some() {
-        query.push_str(", avatar_url = $3");
-    }
-    if about.is_some() {
-        query.push_str(", about = $4");
-    }
-
-    query.push_str(" WHERE user_id = $1::uuid RETURNING *");
-
-    let mut db_query = sqlx::query_as::<_, MessengerProfile>(&query).bind(user_id);
+) -> Result<MessengerProfile, sqlx::Error> {
+    // Конвертируем user_id в Uuid
+    let user_uuid = Uuid::parse_str(user_id)
+        .map_err(|e| sqlx::Error::Protocol(format!("Invalid user_id: {}", e)))?;
     
-    if let Some(name) = display_name {
-        db_query = db_query.bind(name);
-    }
-    if let Some(avatar) = avatar_url {
-        db_query = db_query.bind(avatar);
-    }
-    if let Some(about_text) = about {
-        db_query = db_query.bind(about_text);
-    }
-
-    let profile = db_query.fetch_one(pool).await?;
-
-    Ok(profile)
+    // Простой UPDATE без динамического SQL
+    sqlx::query_as::<_, MessengerProfile>(
+        r#"
+        UPDATE messenger_profiles
+        SET 
+            display_name = COALESCE($2, display_name),
+            avatar_url = COALESCE($3, avatar_url),
+            about = COALESCE($4, about),
+            updated_at = NOW()
+        WHERE user_id = $1
+        RETURNING *
+        "#
+    )
+    .bind(&user_uuid)
+    .bind(&display_name)
+    .bind(&avatar_url)
+    .bind(&about)
+    .fetch_one(pool)
+    .await
 }
 
-// ==================== Контакты и друзья ====================
+/// Поиск пользователей
+pub async fn search_users(
+    pool: &PgPool,
+    query: &str,
+    current_user_id: &str,
+) -> Result<Vec<MessengerProfile>, sqlx::Error> {
+    // Конвертируем current_user_id в Uuid
+    let current_uuid = Uuid::parse_str(current_user_id)
+        .unwrap_or(Uuid::nil());
+    
+    let search_pattern = format!("%{}%", query);
+    
+    sqlx::query_as::<_, MessengerProfile>(
+        r#"
+        SELECT * FROM messenger_profiles
+        WHERE user_id != $1
+        AND (
+            LOWER(messenger_id) LIKE LOWER($2)
+            OR LOWER(display_name) LIKE LOWER($2)
+        )
+        ORDER BY 
+            CASE WHEN LOWER(messenger_id) = LOWER($2) THEN 0
+                 WHEN LOWER(messenger_id) LIKE LOWER($2) THEN 1
+                 ELSE 2
+            END
+        LIMIT 20
+        "#
+    )
+    .bind(current_uuid)
+    .bind(&search_pattern)
+    .fetch_all(pool)
+    .await
+}
 
 /// Отправить запрос в друзья
 pub async fn send_friend_request(
     pool: &PgPool,
-    sender_user_id: &str,
+    sender_id: &str,
     receiver_messenger_id: &str,
-) -> anyhow::Result<FriendRequest> {
-    // Находим пользователя по messenger_id
-    let receiver = get_profile_by_messenger_id(pool, receiver_messenger_id).await?
-        .ok_or_else(|| anyhow!("Пользователь с таким messenger_id не найден"))?;
-
-    // Проверяем что у профиля есть user_id
-    let receiver_user_id = receiver.user_id
-        .ok_or_else(|| anyhow!("У профиля нет привязки к пользователю (тестовый профиль)"))?;
+) -> Result<FriendRequest, anyhow::Error> {
+    // Конвертируем sender_id в Uuid
+    let sender_uuid = Uuid::parse_str(sender_id)
+        .map_err(|e| anyhow::anyhow!("Invalid sender_id: {}", e))?;
     
-    if receiver_user_id.to_string() == sender_user_id {
-        return Err(anyhow!("Нельзя добавить себя в друзья"));
+    // Находим получателя
+    let receiver = get_profile_by_messenger_id(pool, receiver_messenger_id).await?
+        .ok_or_else(|| anyhow::anyhow!("Пользователь не найден"))?;
+    
+    // Проверяем, не отправляем ли сами себе
+    if receiver.user_id == sender_uuid {
+        return Err(anyhow::anyhow!("Нельзя добавить себя в друзья"));
     }
-
-    // Проверяем, нет ли уже запроса
-    let existing = sqlx::query_scalar::<_, bool>(
-        r#"SELECT EXISTS(
-            SELECT 1 FROM friend_requests
-            WHERE sender_user_id = $1::uuid AND receiver_user_id = $2::uuid AND status = 'pending'
-        )"#,
-    )
-    .bind(sender_user_id)
-    .bind(&receiver_user_id)
-    .fetch_one(pool)
-    .await?;
-
-    if existing {
-        return Err(anyhow!("Запрос в друзья уже отправлен"));
-    }
-
+    
+    // Создаём запрос
     let request = sqlx::query_as::<_, FriendRequest>(
         r#"
         INSERT INTO friend_requests (sender_user_id, receiver_user_id, status)
-        VALUES ($1::uuid, $2::uuid, 'pending')
+        VALUES ($1, $2, 'pending')
+        ON CONFLICT (sender_user_id, receiver_user_id) 
+        DO UPDATE SET status = 'pending', created_at = NOW()
         RETURNING *
-        "#,
+        "#
     )
-    .bind(sender_user_id)
-    .bind(&receiver_user_id)
+    .bind(&sender_uuid)
+    .bind(&receiver.user_id)
     .fetch_one(pool)
     .await?;
-
+    
+    // Добавляем контакт отправителю (pending)
+    sqlx::query(
+        r#"
+        INSERT INTO messenger_contacts (owner_user_id, contact_user_id, status, added_by)
+        VALUES ($1, $2, 'pending', $3)
+        ON CONFLICT (owner_user_id, contact_user_id) DO NOTHING
+        "#
+    )
+    .bind(&sender_uuid)
+    .bind(&receiver.user_id)
+    .bind(&sender_uuid)
+    .execute(pool)
+    .await?;
+    
     Ok(request)
 }
 
@@ -987,208 +277,572 @@ pub async fn send_friend_request(
 pub async fn get_incoming_friend_requests(
     pool: &PgPool,
     user_id: &str,
-) -> anyhow::Result<Vec<FriendRequest>> {
+) -> Result<Vec<FriendRequest>, sqlx::Error> {
+    // Конвертируем user_id в Uuid
     let user_uuid = Uuid::parse_str(user_id)
-        .map_err(|e| anyhow!("Invalid user_id format: {}", e))?;
-
-    let requests = sqlx::query_as::<_, FriendRequest>(
+        .unwrap_or(Uuid::nil());
+    
+    sqlx::query_as::<_, FriendRequest>(
         r#"
         SELECT
-            fr.id, fr.sender_user_id, fr.receiver_user_id, fr.status,
-            fr.created_at, fr.responded_at,
-            mp.display_name as sender_display_name,
+            fr.id,
+            fr.sender_user_id,
+            COALESCE(mp.display_name, 'Unknown') as sender_display_name,
+            COALESCE(mp.messenger_id, 'unknown') as sender_messenger_id,
             mp.avatar_url as sender_avatar_url,
-            mp.messenger_id as sender_messenger_id
+            fr.created_at
         FROM friend_requests fr
         JOIN messenger_profiles mp ON mp.user_id = fr.sender_user_id
         WHERE fr.receiver_user_id = $1 AND fr.status = 'pending'
         ORDER BY fr.created_at DESC
-        "#,
+        "#
     )
-    .bind(user_uuid)
+    .bind(&user_uuid)
     .fetch_all(pool)
-    .await?;
-
-    Ok(requests)
+    .await
 }
 
 /// Ответить на запрос в друзья
 pub async fn respond_to_friend_request(
     pool: &PgPool,
     user_id: &str,
-    request_id: &str,
+    request_id: &Uuid,
     accept: bool,
-) -> anyhow::Result<()> {
+) -> Result<(), anyhow::Error> {
+    // Конвертируем user_id в Uuid
+    let user_uuid = Uuid::parse_str(user_id)
+        .map_err(|e| anyhow::anyhow!("Invalid user_id: {}", e))?;
+    
+    let mut tx = pool.begin().await?;
+    
+    // Проверяем что запрос на наше имя
+    let request = sqlx::query_scalar::<_, Uuid>(
+        "SELECT sender_user_id FROM friend_requests WHERE id = $1 AND receiver_user_id = $2 AND status = 'pending'"
+    )
+    .bind(request_id)
+    .bind(&user_uuid)
+    .fetch_optional(&mut *tx)
+    .await?;
+    
+    if request.is_none() {
+        return Err(anyhow::anyhow!("Запрос не найден"));
+    }
+    
+    let sender_id = request.unwrap();
+    
+    // Обновляем статус запроса
     let status = if accept { "accepted" } else { "declined" };
-
     sqlx::query(
-        r#"
-        UPDATE friend_requests
-        SET status = $1, responded_at = NOW()
-        WHERE id = $2 AND receiver_user_id = $3::uuid
-        "#,
+        "UPDATE friend_requests SET status = $1, responded_at = NOW() WHERE id = $2"
     )
     .bind(status)
     .bind(request_id)
-    .bind(user_id)
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
-
-    // Если приняли, добавляем в контакты
+    
     if accept {
-        let request = sqlx::query_as::<_, (String, String)>(
-            r#"SELECT sender_user_id, receiver_user_id FROM friend_requests WHERE id = $1"#,
+        // Добавляем взаимные контакты
+        sqlx::query(
+            r#"
+            INSERT INTO messenger_contacts (owner_user_id, contact_user_id, status, added_by)
+            VALUES ($1, $2, 'accepted', $3)
+            ON CONFLICT (owner_user_id, contact_user_id) 
+            DO UPDATE SET status = 'accepted'
+            "#
         )
-        .bind(request_id)
-        .fetch_optional(pool)
+        .bind(&user_uuid)
+        .bind(&sender_id)
+        .bind(&user_uuid)
+        .execute(&mut *tx)
         .await?;
-
-        if let Some((sender, receiver)) = request {
-            // Добавляем контакт обоим пользователям
-            sqlx::query(
-                r#"
-                INSERT INTO messenger_contacts (owner_user_id, contact_user_id, status, added_by)
-                VALUES ($1, $2, 'accepted', $3)
-                ON CONFLICT (owner_user_id, contact_user_id) DO UPDATE SET
-                    status = 'accepted'
-                "#,
-            )
-            .bind(&receiver)
-            .bind(&sender)
-            .bind(&receiver)
-            .execute(pool)
-            .await?;
-
-            sqlx::query(
-                r#"
-                INSERT INTO messenger_contacts (owner_user_id, contact_user_id, status, added_by)
-                VALUES ($1, $2, 'accepted', $3)
-                ON CONFLICT (owner_user_id, contact_user_id) DO UPDATE SET
-                    status = 'accepted'
-                "#,
-            )
-            .bind(&sender)
-            .bind(&receiver)
-            .bind(&receiver)
-            .execute(pool)
-            .await?;
-        }
+        
+        sqlx::query(
+            r#"
+            INSERT INTO messenger_contacts (owner_user_id, contact_user_id, status, added_by)
+            VALUES ($1, $2, 'accepted', $3)
+            ON CONFLICT (owner_user_id, contact_user_id) 
+            DO UPDATE SET status = 'accepted'
+            "#
+        )
+        .bind(&sender_id)
+        .bind(&user_uuid)
+        .bind(&user_uuid)
+        .execute(&mut *tx)
+        .await?;
+        
+        // Создаём чат между пользователями
+        let conv_id = sqlx::query_scalar::<_, Uuid>(
+            r#"
+            INSERT INTO conversations (created_by, is_group, created_at, updated_at)
+            VALUES ($1, false, NOW(), NOW())
+            RETURNING id
+            "#
+        )
+        .bind(&user_uuid)
+        .fetch_one(&mut *tx)
+        .await?;
+        
+        // Добавляем участников
+        sqlx::query(
+            "INSERT INTO conversation_members (conversation_id, user_id, role) VALUES ($1, $2, 'member')"
+        )
+        .bind(&conv_id)
+        .bind(&user_uuid)
+        .execute(&mut *tx)
+        .await?;
+        
+        sqlx::query(
+            "INSERT INTO conversation_members (conversation_id, user_id, role) VALUES ($1, $2, 'member')"
+        )
+        .bind(&conv_id)
+        .bind(&sender_id)
+        .execute(&mut *tx)
+        .await?;
     }
-
+    
+    tx.commit().await?;
     Ok(())
 }
 
-/// Получить список контактов
+/// Получить контакты
 pub async fn get_contacts(
     pool: &PgPool,
     user_id: &str,
-) -> anyhow::Result<Vec<Contact>> {
+) -> Result<Vec<Contact>, sqlx::Error> {
+    // Конвертируем user_id в Uuid
     let user_uuid = Uuid::parse_str(user_id)
-        .map_err(|e| anyhow!("Invalid user_id format: {}", e))?;
-
-    let contacts = sqlx::query_as::<_, Contact>(
+        .unwrap_or(Uuid::nil());
+    
+    sqlx::query_as::<_, Contact>(
         r#"
-        SELECT
-            mc.id, mc.owner_user_id, mc.contact_user_id, mc.status,
-            mc.custom_name, mc.created_at,
+        SELECT 
+            mc.id,
+            mc.contact_user_id,
             mp.display_name as contact_display_name,
-            mp.avatar_url as contact_avatar_url,
             mp.messenger_id as contact_messenger_id,
-            mp.about as contact_about,
-            false as is_online
+            mp.avatar_url as contact_avatar_url,
+            mc.custom_name,
+            false as is_online,
+            mc.created_at as added_at
         FROM messenger_contacts mc
         JOIN messenger_profiles mp ON mp.user_id = mc.contact_user_id
-        WHERE mc.owner_user_id = $1 AND mc.status != 'blocked'
-        ORDER BY mc.created_at DESC
-        "#,
+        WHERE mc.owner_user_id = $1 AND mc.status = 'accepted'
+        ORDER BY COALESCE(mc.custom_name, mp.display_name)
+        "#
     )
-    .bind(user_uuid)
+    .bind(&user_uuid)
     .fetch_all(pool)
-    .await?;
-
-    Ok(contacts)
+    .await
 }
 
 /// Удалить контакт
 pub async fn remove_contact(
     pool: &PgPool,
-    user_id: &str,
-    contact_user_id: &str,
-) -> anyhow::Result<()> {
+    owner_id: &str,
+    contact_id: &str,
+) -> Result<(), sqlx::Error> {
+    // Конвертируем ID в Uuid
+    let owner_uuid = Uuid::parse_str(owner_id)
+        .map_err(|e| sqlx::Error::Protocol(format!("Invalid owner_id: {}", e)))?;
+    let contact_uuid = Uuid::parse_str(contact_id)
+        .map_err(|e| sqlx::Error::Protocol(format!("Invalid contact_id: {}", e)))?;
+    
     sqlx::query(
-        r#"DELETE FROM messenger_contacts WHERE owner_user_id = $1::uuid AND contact_user_id = $2::uuid"#,
+        "DELETE FROM messenger_contacts WHERE owner_user_id = $1 AND contact_user_id = $2"
     )
-    .bind(user_id)
-    .bind(contact_user_id)
+    .bind(&owner_uuid)
+    .bind(&contact_uuid)
     .execute(pool)
     .await?;
-
     Ok(())
 }
 
-/// Заблокировать контакт
-pub async fn block_contact(
+/// Получить конверсации пользователя (с последними сообщениями)
+pub async fn get_user_conversations(
     pool: &PgPool,
     user_id: &str,
-    contact_user_id: &str,
-) -> anyhow::Result<()> {
-    sqlx::query(
+) -> Result<Vec<ConversationWithLastMessage>, sqlx::Error> {
+    // Конвертируем user_id в Uuid
+    let user_uuid = Uuid::parse_str(user_id)
+        .unwrap_or(Uuid::nil());
+
+    // Получаем базовые данные конверсаций
+    let conversations = sqlx::query_as::<_, Conversation>(
         r#"
-        UPDATE messenger_contacts
-        SET status = 'blocked'
-        WHERE owner_user_id = $1::uuid AND contact_user_id = $2::uuid
-        "#,
+        SELECT c.id, c.name, c.avatar_url, c.created_by, c.is_group, c.created_at, c.updated_at
+        FROM conversations c
+        JOIN conversation_members cm ON c.id = cm.conversation_id
+        WHERE cm.user_id = $1
+        ORDER BY c.updated_at DESC
+        "#
     )
-    .bind(user_id)
-    .bind(contact_user_id)
-    .execute(pool)
-    .await?;
-
-    Ok(())
-}
-
-/// Поиск пользователей по messenger_id или display_name
-pub async fn search_users(
-    pool: &PgPool,
-    query: &str,
-    current_user_id: &str,
-) -> anyhow::Result<Vec<MessengerProfile>> {
-    log::info!("Searching for users with query: '{}'", query);
-    
-    // Нормализуем поисковый запрос - убираем специальные символы
-    let clean_query = query.trim().to_lowercase();
-    let search_pattern = format!("%{}%", clean_query);
-    
-    log::info!("Search pattern: '{}'", search_pattern);
-
-    let users = sqlx::query_as::<_, MessengerProfile>(
-        r#"
-        SELECT * FROM messenger_profiles
-        WHERE (
-            LOWER(messenger_id) LIKE LOWER($1)
-            OR LOWER(display_name) LIKE LOWER($1)
-          )
-          AND (user_id IS NULL OR user_id != $2::uuid)
-        ORDER BY
-            CASE WHEN LOWER(messenger_id) = LOWER($1) THEN 0
-                 WHEN LOWER(messenger_id) LIKE LOWER($1) THEN 1
-                 ELSE 2
-            END,
-            display_name
-        LIMIT 20
-        "#,
-    )
-    .bind(&search_pattern)
-    .bind(current_user_id)
+    .bind(&user_uuid)
     .fetch_all(pool)
     .await?;
 
-    log::info!("Search found {} users", users.len());
+    // Для каждой конверсации получаем последнее сообщение и unread count
+    let mut result = Vec::new();
+    for conv in conversations {
+        let last_message = sqlx::query_as::<_, LastMessageInfo>(
+            r#"
+            SELECT m.id, m.content, m.sender_id, mp.messenger_id as sender_username, m.created_at
+            FROM messages m
+            LEFT JOIN messenger_profiles mp ON mp.user_id = m.sender_id
+            WHERE m.conversation_id = $1 AND m.deleted = false
+            ORDER BY m.created_at DESC
+            LIMIT 1
+            "#
+        )
+        .bind(&conv.id)
+        .fetch_optional(pool)
+        .await?;
+
+        let unread_count = sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT COUNT(*) FROM messages m
+            LEFT JOIN message_read_receipts mrr ON mrr.message_id = m.id AND mrr.user_id = $1
+            WHERE m.conversation_id = $2 AND m.sender_id != $1 AND mrr.message_id IS NULL AND m.deleted = false
+            "#
+        )
+        .bind(&user_uuid)
+        .bind(&conv.id)
+        .fetch_one(pool)
+        .await?;
+
+        result.push(ConversationWithLastMessage {
+            id: conv.id,
+            name: conv.name,
+            avatar_url: conv.avatar_url,
+            created_by: conv.created_by,
+            is_group: conv.is_group,
+            created_at: conv.created_at,
+            updated_at: conv.updated_at,
+            last_message,
+            unread_count,
+        });
+    }
+
+    Ok(result)
+}
+
+/// Получить сообщения конверсации
+pub async fn fetch_conversation_messages(
+    pool: &PgPool,
+    conversation_id: &str,
+    user_id: &str,
+    limit: i32,
+) -> Result<Vec<Message>, sqlx::Error> {
+    // Конвертируем conversation_id в Uuid
+    let conv_uuid = Uuid::parse_str(conversation_id)
+        .map_err(|e| sqlx::Error::Protocol(format!("Invalid conversation_id: {}", e)))?;
     
-    // Логируем найденные профили для отладки
-    for user in &users {
-        log::info!("  - Found: messenger_id='{}', display_name='{}'", user.messenger_id, user.display_name);
+    // Конвертируем user_id в Uuid
+    let user_uuid = Uuid::parse_str(user_id)
+        .unwrap_or(Uuid::nil());
+    
+    sqlx::query_as::<_, Message>(
+        r#"
+        SELECT
+            m.id, m.conversation_id, m.sender_id, m.content, m.message_type,
+            m.created_at, m.updated_at,
+            mp.messenger_id as sender_username,
+            EXISTS(
+                SELECT 1 FROM message_read_receipts mrr
+                WHERE mrr.message_id = m.id AND mrr.user_id = $2
+            ) as is_read
+        FROM messages m
+        LEFT JOIN messenger_profiles mp ON mp.user_id = m.sender_id
+        WHERE m.conversation_id = $3 AND m.deleted = false
+        ORDER BY m.created_at DESC
+        LIMIT $1
+        "#
+    )
+    .bind(limit)
+    .bind(&user_uuid)
+    .bind(&conv_uuid)
+    .fetch_all(pool)
+    .await
+}
+
+/// Получить сообщения (wrapper)
+pub async fn get_conversation_messages(
+    pool: &PgPool,
+    conversation_id: &str,
+    user_id: &str,
+    limit: i32,
+    _before: Option<DateTime<Utc>>,
+) -> Result<Vec<Message>, sqlx::Error> {
+    fetch_conversation_messages(pool, conversation_id, user_id, limit).await
+}
+
+/// Отметить сообщения как прочитанные
+pub async fn mark_messages_read_internal(
+    pool: &PgPool,
+    conversation_id: &str,
+    user_id: &str,
+) -> Result<(), sqlx::Error> {
+    // Конвертируем conversation_id в Uuid
+    let conv_uuid = Uuid::parse_str(conversation_id)
+        .map_err(|e| sqlx::Error::Protocol(format!("Invalid conversation_id: {}", e)))?;
+    
+    // Конвертируем user_id в Uuid
+    let user_uuid = Uuid::parse_str(user_id)
+        .unwrap_or(Uuid::nil());
+
+    // Получаем все непрочитанные сообщения
+    let messages = sqlx::query_scalar::<_, Uuid>(
+        r#"
+        SELECT m.id FROM messages m
+        LEFT JOIN message_read_receipts mrr ON mrr.message_id = m.id AND mrr.user_id = $1
+        WHERE m.conversation_id = $2 AND m.sender_id != $1 AND mrr.message_id IS NULL
+        "#
+    )
+    .bind(&user_uuid)
+    .bind(&conv_uuid)
+    .fetch_all(pool)
+    .await?;
+
+    // Добавляем read receipts
+    for msg_id in messages {
+        sqlx::query(
+            "INSERT INTO message_read_receipts (message_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING"
+        )
+        .bind(&msg_id)
+        .bind(&user_uuid)
+        .execute(pool)
+        .await?;
+    }
+
+    Ok(())
+}
+
+/// Отметить как прочитанное (wrapper)
+pub async fn mark_messages_as_read(
+    pool: &PgPool,
+    user_id: &str,
+    conversation_id: &str,
+    _message_ids: &[String],
+) -> Result<(), sqlx::Error> {
+    mark_messages_read_internal(pool, conversation_id, user_id).await
+}
+
+/// Создать конверсацию
+pub async fn create_conversation(
+    pool: &PgPool,
+    creator_id: &str,
+    member_ids: Vec<String>,
+    name: Option<String>,
+    is_group: bool,
+) -> Result<Conversation, anyhow::Error> {
+    let mut tx = pool.begin().await?;
+    
+    // Конвертируем creator_id в Uuid
+    let creator_uuid = Uuid::parse_str(creator_id)
+        .map_err(|e| anyhow::anyhow!("Invalid creator_id: {}", e))?;
+    
+    // Создаём конверсацию
+    let conv_id = sqlx::query_scalar::<_, Uuid>(
+        r#"
+        INSERT INTO conversations (name, created_by, is_group, created_at, updated_at)
+        VALUES ($1, $2, $3, NOW(), NOW())
+        RETURNING id
+        "#
+    )
+    .bind(&name)
+    .bind(&creator_uuid)
+    .bind(is_group)
+    .fetch_one(&mut *tx)
+    .await?;
+    
+    // Добавляем создателя
+    sqlx::query(
+        "INSERT INTO conversation_members (conversation_id, user_id, role) VALUES ($1, $2, 'admin')"
+    )
+    .bind(&conv_id)
+    .bind(&creator_uuid)
+    .execute(&mut *tx)
+    .await?;
+    
+    // Добавляем остальных участников
+    for member_id_str in member_ids {
+        if let Ok(member_uuid) = Uuid::parse_str(&member_id_str) {
+            if member_uuid != creator_uuid {
+                sqlx::query(
+                    "INSERT INTO conversation_members (conversation_id, user_id, role) VALUES ($1, $2, 'member')"
+                )
+                .bind(&conv_id)
+                .bind(&member_uuid)
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
     }
     
-    Ok(users)
+    tx.commit().await?;
+
+    // Возвращаем конверсацию
+    let conv = get_conversation_by_id(pool, &conv_id, creator_id).await?;
+    conv.ok_or_else(|| anyhow::anyhow!("Conversation not found"))
+}
+
+/// Получить конверсацию по ID
+pub async fn get_conversation_by_id(
+    pool: &PgPool,
+    conversation_id: &Uuid,
+    current_user_id: &str,
+) -> Result<Option<Conversation>, sqlx::Error> {
+    // Конвертируем current_user_id в Uuid
+    let user_uuid = Uuid::parse_str(current_user_id)
+        .unwrap_or(Uuid::nil());
+    
+    sqlx::query_as::<_, Conversation>(
+        r#"
+        SELECT c.id, c.name, c.avatar_url, c.created_by, c.is_group, c.created_at, c.updated_at
+        FROM conversations c
+        JOIN conversation_members cm ON c.id = cm.conversation_id
+        WHERE c.id = $1 AND cm.user_id = $2
+        "#
+    )
+    .bind(conversation_id)
+    .bind(&user_uuid)
+    .fetch_optional(pool)
+    .await
+}
+
+/// Отправить сообщение (полная версия)
+pub async fn send_message_full(
+    pool: &PgPool,
+    sender_id: &str,
+    conversation_id: &str,
+    content: &str,
+    message_type: Option<String>,
+    media_url: Option<String>,
+    reply_to_id: Option<String>,
+) -> Result<Message, sqlx::Error> {
+    // Конвертируем ID в Uuid
+    let sender_uuid = Uuid::parse_str(sender_id)
+        .map_err(|e| sqlx::Error::Protocol(format!("Invalid sender_id: {}", e)))?;
+    let conv_uuid = Uuid::parse_str(conversation_id)
+        .map_err(|e| sqlx::Error::Protocol(format!("Invalid conversation_id: {}", e)))?;
+    
+    // Конвертируем reply_to_id в Uuid если есть
+    let reply_uuid = reply_to_id
+        .filter(|s| !s.is_empty())
+        .and_then(|s| Uuid::parse_str(&s).ok());
+
+    let msg_type = message_type.unwrap_or_else(|| "text".to_string());
+
+    sqlx::query_as::<_, Message>(
+        r#"
+        INSERT INTO messages (conversation_id, sender_id, content, message_type, media_url, reply_to_id)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING *
+        "#
+    )
+    .bind(&conv_uuid)
+    .bind(&sender_uuid)
+    .bind(content)
+    .bind(&msg_type)
+    .bind(&media_url)
+    .bind(&reply_uuid)
+    .fetch_one(pool)
+    .await
+}
+
+/// Транслировать сообщение всем участникам конверсации (кроме отправителя)
+pub async fn broadcast_to_conversation(
+    connections: &tokio::sync::RwLock<std::collections::HashMap<String, tokio::sync::mpsc::UnboundedSender<String>>>,
+    conversation_id: &str,
+    pool: &PgPool,
+    message_json: &str,
+    sender_id: &str,
+) {
+    // Конвертируем conversation_id в Uuid
+    let conv_uuid = Uuid::parse_str(conversation_id).ok();
+    if conv_uuid.is_none() {
+        return;
+    }
+
+    // Получаем всех участников конверсации
+    let member_ids: Vec<String> = sqlx::query_scalar(
+        "SELECT user_id::text FROM conversation_members WHERE conversation_id = $1"
+    )
+    .bind(&conv_uuid)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    // Отправляем каждому участнику КРОМЕ отправителя
+    let conns = connections.read().await;
+    for member_id in member_ids {
+        if member_id != sender_id {
+            if let Some(tx) = conns.get(&member_id) {
+                let _ = tx.send(message_json.to_string());
+            }
+        }
+    }
+}
+
+/// Setup профиль (переименованная create_profile)
+pub async fn setup_messenger_profile(
+    pool: &PgPool,
+    user_id: &str,
+    messenger_id: &str,
+    display_name: &str,
+    about: Option<&str>,
+) -> Result<MessengerProfile, anyhow::Error> {
+    // Конвертируем user_id в Uuid
+    let user_uuid = Uuid::parse_str(user_id)
+        .map_err(|e| anyhow::anyhow!("Invalid user_id: {}", e))?;
+    
+    // Проверяем занятость messenger_id
+    let exists = sqlx::query_scalar::<_, bool>(
+        r#"SELECT EXISTS(SELECT 1 FROM messenger_profiles WHERE messenger_id = $1)"#
+    )
+    .bind(messenger_id)
+    .fetch_one(pool)
+    .await?;
+
+    if exists {
+        return Err(anyhow::anyhow!("Это имя уже занято"));
+    }
+
+    create_profile(pool, &user_uuid, messenger_id, display_name, about).await
+        .map_err(|e| anyhow::anyhow!(e.to_string()))
+}
+
+/// Алиасы для совместимости
+pub async fn get_messenger_profile(pool: &PgPool, user_id: &str) -> Result<Option<MessengerProfile>, sqlx::Error> {
+    // Конвертируем user_id в Uuid
+    let user_uuid = Uuid::parse_str(user_id).ok();
+    if let Some(uuid) = user_uuid {
+        get_profile_by_user_id(pool, &uuid).await
+    } else {
+        Ok(None)
+    }
+}
+
+pub async fn update_messenger_profile(
+    pool: &PgPool,
+    user_id: &str,
+    display_name: Option<&str>,
+    avatar_url: Option<&str>,
+    about: Option<&str>,
+) -> Result<MessengerProfile, sqlx::Error> {
+    update_profile(pool, user_id, display_name, avatar_url, about).await
+}
+
+// ==================== WRAPPER ФУНКЦИИ ДЛЯ СОВМЕСТИМОСТИ ====================
+
+/// Отправить сообщение (wrapper для старой сигнатуры)
+pub async fn send_message(
+    pool: &PgPool,
+    sender_id: &str,
+    conversation_id: &str,
+    content: &str,
+    _message_type: Option<String>,
+    _media_url: Option<String>,
+    _reply_to_id: Option<String>,
+) -> Result<Message, sqlx::Error> {
+    send_message_full(pool, sender_id, conversation_id, content, None, None, None).await
 }

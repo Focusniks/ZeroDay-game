@@ -66,6 +66,17 @@ fn get_site_category(name: &str) -> String {
 }
 
 fn get_sites_root() -> PathBuf {
+    // Ищем папку sites начиная от текущей директории (где запущен бэкенд)
+    // Это позволяет использовать файлы напрямую из backend/sites/ без копирования
+    let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let sites_dir = current_dir.join("sites");
+    
+    // Если папка существует — используем её
+    if sites_dir.exists() {
+        return sites_dir;
+    }
+    
+    // Иначе пробуем найти относительно exe (для release сборок)
     let exe = std::env::current_exe().unwrap_or_default();
     let dir = exe.parent().unwrap_or(Path::new("."));
     dir.join("sites")
