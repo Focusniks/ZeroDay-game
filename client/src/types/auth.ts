@@ -57,7 +57,7 @@ export type Message = {
 // Messenger Profile & Contacts
 export type MessengerProfile = {
   id: string;
-  user_id: string;
+  user_id: string | null;
   messenger_id: string;
   display_name: string;
   avatar_url: string | null;

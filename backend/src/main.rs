@@ -1443,24 +1443,30 @@ async fn create_conversation_http(
             "ok": false, "error": "Unauthorized"
         }))
     };
-    
+
     let user = match messenger::get_messenger_profile(&state.pool, &user_id).await {
-        Ok(Some(p)) => AuthUser {
-            id: p.user_id.to_string(),
-            username: p.display_name,
-            email: String::new(),
-            ip_address: String::new(),
-            level: 1,
-            xp: 0,
-            reputation: 0,
-            disk_capacity_mb: 512,
+        Ok(Some(p)) => {
+            let profile_user_id = p.user_id
+                .map(|id| id.to_string())
+                .unwrap_or_else(|| user_id.clone());
+            
+            AuthUser {
+                id: profile_user_id,
+                username: p.display_name,
+                email: String::new(),
+                ip_address: String::new(),
+                level: 1,
+                xp: 0,
+                reputation: 0,
+                disk_capacity_mb: 512,
+            }
         },
         _ => return HttpResponse::BadRequest().json(serde_json::json!({
             "ok": false,
             "error": "Messenger profile not found"
         }))
     };
-    
+
     match messenger::create_conversation(
         &state.pool,
         &user,
@@ -1525,15 +1531,21 @@ async fn send_message_http_api(
     };
     
     let user = match messenger::get_messenger_profile(&state.pool, &user_id).await {
-        Ok(Some(p)) => AuthUser {
-            id: p.user_id.to_string(),
-            username: p.display_name,
-            email: String::new(),
-            ip_address: String::new(),
-            level: 1,
-            xp: 0,
-            reputation: 0,
-            disk_capacity_mb: 512,
+        Ok(Some(p)) => {
+            let profile_user_id = p.user_id
+                .map(|id| id.to_string())
+                .unwrap_or_else(|| user_id.clone());
+            
+            AuthUser {
+                id: profile_user_id,
+                username: p.display_name,
+                email: String::new(),
+                ip_address: String::new(),
+                level: 1,
+                xp: 0,
+                reputation: 0,
+                disk_capacity_mb: 512,
+            }
         },
         _ => return HttpResponse::BadRequest().json(serde_json::json!({
             "ok": false,

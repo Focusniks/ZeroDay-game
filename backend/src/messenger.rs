@@ -18,7 +18,8 @@ pub type ActiveConnections = Arc<RwLock<HashMap<String, tokio::sync::mpsc::Unbou
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct MessengerProfile {
     pub id: Uuid,
-    pub user_id: Uuid,
+    #[sqlx(default)]
+    pub user_id: Option<Uuid>,
     pub messenger_id: String,
     pub display_name: String,
     pub avatar_url: Option<String>,
@@ -943,7 +944,11 @@ pub async fn send_friend_request(
     let receiver = get_profile_by_messenger_id(pool, receiver_messenger_id).await?
         .ok_or_else(|| anyhow!("Пользователь с таким messenger_id не найден"))?;
 
-    if receiver.user_id.to_string() == sender_user_id {
+    // Проверяем что у профиля есть user_id
+    let receiver_user_id = receiver.user_id
+        .ok_or_else(|| anyhow!("У профиля нет привязки к пользователю (тестовый профиль)"))?;
+    
+    if receiver_user_id.to_string() == sender_user_id {
         return Err(anyhow!("Нельзя добавить себя в друзья"));
     }
 
@@ -955,7 +960,7 @@ pub async fn send_friend_request(
         )"#,
     )
     .bind(sender_user_id)
-    .bind(&receiver.user_id)
+    .bind(&receiver_user_id)
     .fetch_one(pool)
     .await?;
 
@@ -967,15 +972,11 @@ pub async fn send_friend_request(
         r#"
         INSERT INTO friend_requests (sender_user_id, receiver_user_id, status)
         VALUES ($1::uuid, $2::uuid, 'pending')
-        ON CONFLICT (sender_user_id, receiver_user_id) DO UPDATE SET
-            status = 'pending',
-            created_at = NOW(),
-            responded_at = NULL
         RETURNING *
         "#,
     )
     .bind(sender_user_id)
-    .bind(&receiver.user_id)
+    .bind(&receiver_user_id)
     .fetch_one(pool)
     .await?;
 
@@ -1152,14 +1153,28 @@ pub async fn search_users(
     query: &str,
     current_user_id: &str,
 ) -> anyhow::Result<Vec<MessengerProfile>> {
-    log::info!("Searching for users with query: {}", query);
-    let search_pattern = format!("%{}%", query);
+    log::info!("Searching for users with query: '{}'", query);
+    
+    // Нормализуем поисковый запрос - убираем специальные символы
+    let clean_query = query.trim().to_lowercase();
+    let search_pattern = format!("%{}%", clean_query);
+    
+    log::info!("Search pattern: '{}'", search_pattern);
 
     let users = sqlx::query_as::<_, MessengerProfile>(
         r#"
         SELECT * FROM messenger_profiles
-        WHERE (messenger_id ILIKE $1 OR display_name ILIKE $1)
-          AND user_id != $2
+        WHERE (
+            LOWER(messenger_id) LIKE LOWER($1)
+            OR LOWER(display_name) LIKE LOWER($1)
+          )
+          AND (user_id IS NULL OR user_id != $2::uuid)
+        ORDER BY
+            CASE WHEN LOWER(messenger_id) = LOWER($1) THEN 0
+                 WHEN LOWER(messenger_id) LIKE LOWER($1) THEN 1
+                 ELSE 2
+            END,
+            display_name
         LIMIT 20
         "#,
     )
@@ -1168,6 +1183,12 @@ pub async fn search_users(
     .fetch_all(pool)
     .await?;
 
-    log::info!("Found {} users", users.len());
+    log::info!("Search found {} users", users.len());
+    
+    // Логируем найденные профили для отладки
+    for user in &users {
+        log::info!("  - Found: messenger_id='{}', display_name='{}'", user.messenger_id, user.display_name);
+    }
+    
     Ok(users)
 }

@@ -521,7 +521,7 @@ function AddContactModal({ onClose, onAdd, profile }: {
   const [success, setSuccess] = useState(false);
   const { sendJson, lastMessage } = useAuth();
 
-  // Поиск пользователя при вводе
+  // Поиск пользователя при вводе с задержкой
   useEffect(() => {
     const timer = setTimeout(() => {
       const query = searchQuery.trim();
@@ -536,7 +536,7 @@ function AddContactModal({ onClose, onAdd, profile }: {
         setSelectedUser(null);
         setLoading(false);
       }
-    }, 600);
+    }, 500); // Уменьшенная задержка для более быстрого поиска
 
     return () => clearTimeout(timer);
   }, [searchQuery, sendJson]);
@@ -544,20 +544,50 @@ function AddContactModal({ onClose, onAdd, profile }: {
   // Обработка результатов поиска через lastMessage
   useEffect(() => {
     if (!lastMessage) return;
-    
+
     try {
       const data = JSON.parse(lastMessage);
+      console.log('[AddContact] Received message:', data);
+      
       if (data.type === "ProfilesList") {
         setLoading(false);
-        setSearchResults(data.profiles || []);
+        const results = data.profiles || [];
+        console.log('[AddContact] Found profiles:', results);
+        
+        // Фильтруем самого пользователя
+        const filtered = profile
+          ? results.filter((p: MessengerProfile) => p.user_id !== profile.user_id)
+          : results;
+        setSearchResults(filtered);
+
+        if (filtered.length === 0) {
+          setError("Никто не найден. Проверьте правильность ввода.");
+        } else {
+          setError("");
+        }
+      } else if (data.type === "Error") {
+        setLoading(false);
+        console.error('[AddContact] Error:', data);
+        
+        if (data.code === "no_profile") {
+          setError("У вас нет профиля мессенджера. Создайте его в настройках.");
+        } else if (data.code === "search_error") {
+          setError(data.message || "Ошибка при поиске");
+        } else if (data.code === "not_authorized") {
+          setError("Требуется авторизация");
+        } else {
+          setError(data.message || "Ошибка при поиске");
+        }
       }
-    } catch {
+    } catch (err) {
+      console.error('[AddContact] Parse error:', err);
       // ignore parse errors
     }
-  }, [lastMessage]);
+  }, [lastMessage, profile]);
 
   const handleSelectUser = (user: MessengerProfile) => {
-    if (profile && user.user_id === profile.user_id) {
+    // Проверяем что user_id существует и совпадает с текущим пользователем
+    if (profile && user.user_id && user.user_id === profile.user_id) {
       setError("Нельзя добавить себя в друзья");
       return;
     }
@@ -567,10 +597,10 @@ function AddContactModal({ onClose, onAdd, profile }: {
 
   const handleSendRequest = async () => {
     if (!selectedUser) return;
-    
+
     setSending(true);
     setError("");
-    
+
     try {
       onAdd(selectedUser.messenger_id);
       setSuccess(true);
@@ -600,82 +630,84 @@ function AddContactModal({ onClose, onAdd, profile }: {
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-slate-900/95 rounded-3xl border border-slate-700/50 p-0 max-w-lg w-full shadow-2xl overflow-hidden">
+      <div className="bg-slate-900/95 rounded-2xl border border-slate-700/50 max-w-lg w-full shadow-2xl overflow-hidden">
         {/* Header */}
-        <div className="relative bg-gradient-to-r from-blue-600 to-purple-600 p-6">
-          <button 
+        <div className="relative bg-gradient-to-r from-blue-600 to-indigo-600 p-5">
+          <button
             onClick={onClose}
-            className="absolute top-4 right-4 text-white/70 hover:text-white transition-colors"
+            className="absolute top-3 right-3 text-white/70 hover:text-white transition-colors"
           >
-            <X className="w-6 h-6" />
+            <X className="w-5 h-5" />
           </button>
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center">
-              <UserPlus className="w-6 h-6 text-white" />
+            <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
+              <UserPlus className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h3 className="text-xl font-bold text-white">Добавить друга</h3>
-              <p className="text-blue-100 text-sm">Найдите человека по имени</p>
+              <h3 className="text-lg font-semibold text-white">Добавить контакт</h3>
+              <p className="text-blue-100 text-xs">Поиск по messenger_id или имени</p>
             </div>
           </div>
         </div>
 
         {/* Search */}
-        <div className="p-6">
-          <div className="relative mb-6">
+        <div className="p-5">
+          <div className="mb-5">
             <label className="block text-sm font-medium text-slate-300 mb-2">
-              Поиск по имени
+              Messenger ID или имя
             </label>
             <div className="relative">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-slate-500" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Введите имя пользователя..."
-                className="w-full pl-12 pr-4 py-3.5 bg-slate-800/80 border border-slate-700 rounded-xl text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all"
+                placeholder="@username или имя"
+                className="w-full pl-10 pr-4 py-3 bg-slate-800/80 border border-slate-700 rounded-xl text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all text-sm"
                 autoFocus
               />
               {loading && (
-                <div className="absolute right-4 top-1/2 -translate-y-1/2">
-                  <div className="w-5 h-5 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
+                <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                  <div className="w-4 h-4 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
                 </div>
               )}
             </div>
-            <p className="text-xs text-slate-500 mt-2">
+            <p className="text-xs text-slate-500 mt-1.5">
               Введите минимум 2 символа для поиска
             </p>
           </div>
 
           {/* Results */}
           {searchResults.length > 0 && (
-            <div className="space-y-2 mb-4">
-              <p className="text-sm text-slate-400 mb-2">
+            <div className="space-y-2 mb-4 max-h-64 overflow-y-auto">
+              <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">
                 Найдено: {searchResults.length}
               </p>
               {searchResults.map((user) => (
                 <button
                   key={user.id}
                   onClick={() => handleSelectUser(user)}
-                  className={`w-full flex items-center gap-4 p-4 rounded-xl border transition-all ${
+                  className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all ${
                     selectedUser?.id === user.id
                       ? "bg-blue-600/20 border-blue-500"
                       : "bg-slate-800/50 border-slate-700 hover:border-slate-600"
                   }`}
                 >
-                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 flex items-center justify-center text-white font-bold text-lg flex-shrink-0">
-                    {user.avatar_url ? (
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 flex items-center justify-center text-white font-semibold text-sm flex-shrink-0">
+                    {user.avatar_url && !user.avatar_url.startsWith('http') ? (
                       <img src={user.avatar_url} alt={user.display_name} className="w-full h-full object-cover rounded-full" />
+                    ) : user.avatar_url ? (
+                      <img src={user.avatar_url} alt={user.display_name} className="w-full h-full object-cover rounded-full" onError={(e) => { (e.target as HTMLImageElement).src = ''; }} />
                     ) : (
                       user.display_name.charAt(0).toUpperCase()
                     )}
                   </div>
                   <div className="flex-1 text-left min-w-0">
-                    <p className="font-medium text-white truncate">{user.display_name}</p>
-                    <p className="text-sm text-slate-400">@{user.messenger_id}</p>
+                    <p className="font-medium text-white truncate text-sm">{user.display_name}</p>
+                    <p className="text-xs text-slate-400 truncate">@{user.messenger_id}</p>
                   </div>
                   {selectedUser?.id === user.id && (
-                    <Check className="w-6 h-6 text-blue-400 flex-shrink-0" />
+                    <Check className="w-5 h-5 text-blue-400 flex-shrink-0" />
                   )}
                 </button>
               ))}
@@ -685,16 +717,29 @@ function AddContactModal({ onClose, onAdd, profile }: {
           {/* No results */}
           {!loading && searchQuery.trim().length >= 2 && searchResults.length === 0 && (
             <div className="text-center py-8">
-              <Search className="w-12 h-12 text-slate-600 mx-auto mb-3" />
-              <p className="text-slate-400">Никто не найден</p>
-              <p className="text-sm text-slate-500 mt-1">Проверьте правильность ввода</p>
+              <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center mx-auto mb-3">
+                <Search className="w-6 h-6 text-slate-600" />
+              </div>
+              <p className="text-slate-400 text-sm">Никто не найден</p>
+              <p className="text-xs text-slate-500 mt-1">Проверьте правильность ввода</p>
+            </div>
+          )}
+
+          {/* Initial state */}
+          {!loading && searchQuery.trim().length < 2 && (
+            <div className="text-center py-8">
+              <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center mx-auto mb-3">
+                <UserPlus className="w-6 h-6 text-slate-600" />
+              </div>
+              <p className="text-slate-400 text-sm">Начните вводить для поиска</p>
+              <p className="text-xs text-slate-500 mt-1">Минимум 2 символа</p>
             </div>
           )}
 
           {/* Error */}
-          {error && (
-            <div className="bg-red-900/30 border border-red-800/50 rounded-xl p-4 flex items-start gap-3 mb-4">
-              <X className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+          {error && !error.includes("Никто не найден") && (
+            <div className="bg-red-900/30 border border-red-800/50 rounded-xl p-3 flex items-start gap-3 mb-4">
+              <X className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
               <p className="text-sm text-red-200">{error}</p>
             </div>
           )}
@@ -703,16 +748,18 @@ function AddContactModal({ onClose, onAdd, profile }: {
           {selectedUser && (
             <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700 mb-4">
               <div className="flex items-center gap-3 mb-3">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 flex items-center justify-center text-white font-bold">
-                  {selectedUser.avatar_url ? (
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 flex items-center justify-center text-white font-semibold text-sm">
+                  {selectedUser.avatar_url && !selectedUser.avatar_url.startsWith('http') ? (
                     <img src={selectedUser.avatar_url} alt={selectedUser.display_name} className="w-full h-full object-cover rounded-full" />
+                  ) : selectedUser.avatar_url ? (
+                    <img src={selectedUser.avatar_url} alt={selectedUser.display_name} className="w-full h-full object-cover rounded-full" onError={(e) => { (e.target as HTMLImageElement).src = ''; }} />
                   ) : (
                     selectedUser.display_name.charAt(0).toUpperCase()
                   )}
                 </div>
-                <div>
-                  <p className="font-medium text-white">{selectedUser.display_name}</p>
-                  <p className="text-sm text-slate-400">@{selectedUser.messenger_id}</p>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-white text-sm">{selectedUser.display_name}</p>
+                  <p className="text-xs text-slate-400">@{selectedUser.messenger_id}</p>
                 </div>
               </div>
               {selectedUser.about && (
@@ -725,32 +772,261 @@ function AddContactModal({ onClose, onAdd, profile }: {
           <div className="flex gap-3">
             <button
               onClick={onClose}
-              className="flex-1 px-4 py-3 rounded-xl border border-slate-700 text-slate-300 hover:bg-slate-800 transition-colors font-medium"
+              className="flex-1 px-4 py-2.5 rounded-xl border border-slate-700 text-slate-300 hover:bg-slate-800 transition-colors font-medium text-sm"
             >
               Отмена
             </button>
             <button
               onClick={handleSendRequest}
               disabled={!selectedUser || sending}
-              className={`flex-1 px-4 py-3 rounded-xl font-medium transition-all flex items-center justify-center gap-2 ${
+              className={`flex-1 px-4 py-2.5 rounded-xl font-medium transition-all flex items-center justify-center gap-2 text-sm ${
                 selectedUser && !sending
-                  ? "bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:shadow-lg hover:shadow-blue-500/30"
+                  ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:shadow-lg hover:shadow-blue-500/30"
                   : "bg-slate-800 text-slate-500 cursor-not-allowed"
               }`}
             >
               {sending ? (
                 <>
-                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
                   Отправка...
                 </>
               ) : (
                 <>
-                  <UserPlus className="w-5 h-5" />
+                  <UserPlus className="w-4 h-4" />
                   Отправить запрос
                 </>
               )}
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ==================== Модальное окно создания группового чата ====================
+
+function CreateGroupChatModal({ onClose, onCreate, contacts, profile }: {
+  onClose: () => void;
+  onCreate: (userIds: string[], name: string) => void;
+  contacts: Contact[];
+  profile: MessengerProfile | null;
+}) {
+  const [selectedContacts, setSelectedContacts] = useState<string[]>([]);
+  const [groupName, setGroupName] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [error, setError] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [success, setSuccess] = useState(false);
+
+  const filteredContacts = contacts.filter(contact => {
+    const name = (contact.custom_name || contact.contact_display_name || "").toLowerCase();
+    const query = searchQuery.toLowerCase();
+    return name.includes(query) || contact.contact_messenger_id?.toLowerCase().includes(query);
+  });
+
+  const toggleContact = (userId: string) => {
+    setSelectedContacts(prev =>
+      prev.includes(userId)
+        ? prev.filter(id => id !== userId)
+        : [...prev, userId]
+    );
+    setError("");
+  };
+
+  const handleCreate = async () => {
+    if (selectedContacts.length < 2) {
+      setError("Выберите минимум 2 участников");
+      return;
+    }
+    if (!groupName.trim()) {
+      setError("Введите название группы");
+      return;
+    }
+
+    setCreating(true);
+    setError("");
+
+    try {
+      onCreate(selectedContacts, groupName.trim());
+      setSuccess(true);
+      setTimeout(() => {
+        onClose();
+      }, 1500);
+    } catch (err) {
+      setError("Не удалось создать группу. Попробуйте снова.");
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  if (success) {
+    return (
+      <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div className="bg-gradient-to-br from-green-900/90 to-emerald-900/90 rounded-3xl border border-green-700/50 p-8 max-w-sm w-full shadow-2xl text-center">
+          <div className="w-20 h-20 rounded-full bg-green-500 flex items-center justify-center mx-auto mb-4 animate-bounce">
+            <Check className="w-10 h-10 text-white" />
+          </div>
+          <h3 className="text-2xl font-bold text-white mb-2">Группа создана!</h3>
+          <p className="text-green-100">Можно начинать общение</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-slate-900/95 rounded-3xl border border-slate-700/50 max-w-lg w-full shadow-2xl overflow-hidden max-h-[80vh] flex flex-col">
+        {/* Header */}
+        <div className="relative bg-gradient-to-r from-purple-600 to-pink-600 p-6 flex-shrink-0">
+          <button
+            onClick={onClose}
+            className="absolute top-4 right-4 text-white/70 hover:text-white transition-colors"
+          >
+            <X className="w-6 h-6" />
+          </button>
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center">
+              <Users className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h3 className="text-xl font-bold text-white">Создать группу</h3>
+              <p className="text-purple-100 text-sm">Выберите участников</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="p-6 flex-1 overflow-y-auto">
+          {/* Group name */}
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-slate-300 mb-2">
+              Название группы *
+            </label>
+            <input
+              type="text"
+              value={groupName}
+              onChange={(e) => setGroupName(e.target.value)}
+              placeholder="Введите название группы"
+              maxLength={50}
+              className="w-full px-4 py-3 bg-slate-800/80 border border-slate-700 rounded-xl text-slate-100 placeholder-slate-500 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 transition-all"
+            />
+            <p className="text-xs text-slate-500 mt-1">{groupName.length}/50</p>
+          </div>
+
+          {/* Search */}
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-slate-300 mb-2">
+              Поиск контактов
+            </label>
+            <div className="relative">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Фильтр контактов..."
+                className="w-full pl-12 pr-4 py-3 bg-slate-800/80 border border-slate-700 rounded-xl text-slate-100 placeholder-slate-500 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 transition-all"
+              />
+            </div>
+          </div>
+
+          {/* Selected count */}
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-sm text-slate-400">
+              Выбрано: <span className="text-purple-400 font-semibold">{selectedContacts.length}</span>
+            </p>
+            {selectedContacts.length > 0 && (
+              <button
+                onClick={() => setSelectedContacts([])}
+                className="text-xs text-slate-500 hover:text-slate-300"
+              >
+                Сбросить
+              </button>
+            )}
+          </div>
+
+          {/* Contacts list */}
+          <div className="space-y-2 max-h-64 overflow-y-auto">
+            {filteredContacts.length > 0 ? (
+              filteredContacts.map(contact => (
+                <button
+                  key={contact.id}
+                  onClick={() => toggleContact(contact.contact_user_id)}
+                  className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all ${
+                    selectedContacts.includes(contact.contact_user_id)
+                      ? "bg-purple-600/20 border-purple-500"
+                      : "bg-slate-800/50 border-slate-700 hover:border-slate-600"
+                  }`}
+                >
+                  <div className="relative">
+                    <Avatar
+                      name={contact.contact_display_name || "User"}
+                      url={contact.contact_avatar_url}
+                      size="md"
+                      online={contact.is_online}
+                    />
+                    {selectedContacts.includes(contact.contact_user_id) && (
+                      <div className="absolute -top-1 -right-1 w-5 h-5 bg-purple-500 rounded-full flex items-center justify-center">
+                        <Check className="w-3 h-3 text-white" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex-1 text-left">
+                    <p className="font-medium text-slate-100">
+                      {contact.custom_name || contact.contact_display_name}
+                    </p>
+                    <p className="text-xs text-slate-500">@{contact.contact_messenger_id}</p>
+                  </div>
+                </button>
+              ))
+            ) : (
+              <div className="text-center py-8 text-slate-500">
+                <Users className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                <p>Нет доступных контактов</p>
+                <p className="text-sm mt-1">Добавьте друзей для создания группы</p>
+              </div>
+            )}
+          </div>
+
+          {/* Error */}
+          {error && (
+            <div className="mt-4 p-3 bg-red-900/30 border border-red-800/50 rounded-xl text-red-200 text-sm flex items-center gap-2">
+              <X className="w-4 h-4 flex-shrink-0" />
+              {error}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="p-4 border-t border-slate-800 flex gap-3 flex-shrink-0">
+          <button
+            onClick={onClose}
+            className="flex-1 px-4 py-3 rounded-xl border border-slate-700 text-slate-300 hover:bg-slate-800 transition-colors font-medium"
+          >
+            Отмена
+          </button>
+          <button
+            onClick={handleCreate}
+            disabled={creating || selectedContacts.length < 2 || !groupName.trim()}
+            className={`flex-1 px-4 py-3 rounded-xl font-medium transition-all flex items-center justify-center gap-2 ${
+              creating || selectedContacts.length < 2 || !groupName.trim()
+                ? "bg-slate-800 text-slate-500 cursor-not-allowed"
+                : "bg-gradient-to-r from-purple-600 to-pink-600 text-white hover:shadow-lg hover:shadow-purple-500/30"
+            }`}
+          >
+            {creating ? (
+              <>
+                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                Создание...
+              </>
+            ) : (
+              <>
+                <Users className="w-5 h-5" />
+                Создать группу
+              </>
+            )}
+          </button>
         </div>
       </div>
     </div>
@@ -776,6 +1052,7 @@ export function MessengerWeb() {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showAddContact, setShowAddContact] = useState(false);
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [notification, setNotification] = useState<{type: "success" | "error", message: string} | null>(null);
   const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -951,6 +1228,22 @@ export function MessengerWeb() {
     // Уведомление показывается в обработчике FriendRequestSent или Error
   };
 
+  // Создание группового чата
+  const handleCreateGroup = (userIds: string[], name: string) => {
+    sendJson({
+      type: "CreateConversation",
+      user_ids: userIds,
+      is_group: true,
+      name,
+    });
+    setShowCreateGroup(false);
+    setNotification({
+      type: "success",
+      message: `Группа "${name}" создана`
+    });
+    setTimeout(() => setNotification(null), 3000);
+  };
+
   // Создание чата с контактом
   const handleCreateChat = (userId: string) => {
     sendJson({
@@ -1028,13 +1321,22 @@ export function MessengerWeb() {
               <span className="absolute top-2 right-3 w-2 h-2 bg-red-500 rounded-full"></span>
             )}
           </button>
-          <button
-            onClick={() => setShowAddContact(true)}
-            className="p-3 text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 rounded-xl transition-all"
-            title="Добавить контакт"
-          >
-            <UserPlus className="w-5 h-5" />
-          </button>
+          <div className="flex">
+            <button
+              onClick={() => setShowCreateGroup(true)}
+              className="p-3 text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 rounded-xl transition-all"
+              title="Создать группу"
+            >
+              <Users className="w-5 h-5" />
+            </button>
+            <button
+              onClick={() => setShowAddContact(true)}
+              className="p-3 text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 rounded-xl transition-all"
+              title="Добавить контакт"
+            >
+              <UserPlus className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Контент */}
@@ -1262,6 +1564,16 @@ export function MessengerWeb() {
         <AddContactModal
           onClose={() => setShowAddContact(false)}
           onAdd={handleAddContact}
+          profile={profile}
+        />
+      )}
+
+      {/* Модальное окно создания группы */}
+      {showCreateGroup && (
+        <CreateGroupChatModal
+          onClose={() => setShowCreateGroup(false)}
+          onCreate={handleCreateGroup}
+          contacts={contacts}
           profile={profile}
         />
       )}

@@ -202,9 +202,17 @@ async fn handle_connection(
     jwt_secret: String,
     connections: SharedConnections,
 ) -> anyhow::Result<()> {
-    let ws_stream = accept_async(stream)
-        .await
-        .with_context(|| format!("websocket handshake failed for {peer}"))?;
+    let ws_stream = match accept_async(stream).await {
+        Ok(ws) => ws,
+        Err(e) => {
+            // Игнорируем ошибки handshake - это обычно означает, что клиент отключился во время handshake
+            if e.to_string().contains("Handshake not finished") || e.to_string().contains("handshake") {
+                log::debug!("WebSocket handshake failed for {} (client disconnected early)", peer);
+                return Ok(());
+            }
+            return Err(e).with_context(|| format!("websocket handshake failed for {peer}"));
+        }
+    };
 
     info!("ws connected: {peer}");
 
@@ -553,22 +561,19 @@ async fn handle_connection(
                     Ok(WsMessage::SearchUsers { query }) => {
                         match current_user {
                             Some(ref user) => {
-                                // Проверяем, есть ли у пользователя профиль мессенджера
-                                match messenger::get_messenger_profile(&pool, &user.id).await {
-                                    Ok(Some(_)) => {
-                                        // Профиль есть, выполняем поиск
-                                        match messenger::search_users(&pool, &query, &user.id).await {
-                                            Ok(profiles) => WsMessage::ProfilesList { profiles },
-                                            Err(e) => {
-                                                warn!("Search error: {}", e);
-                                                WsMessage::ProfilesList { profiles: vec![] }
-                                            },
-                                        }
+                                log::info!("SearchUsers request from user {} with query: {}", user.id, query);
+                                
+                                // Поиск доступен всем авторизованным пользователям
+                                // Профиль мессенджера не обязателен для поиска
+                                match messenger::search_users(&pool, &query, &user.id).await {
+                                    Ok(profiles) => {
+                                        log::info!("Search found {} profiles", profiles.len());
+                                        WsMessage::ProfilesList { profiles }
                                     },
-                                    Ok(None) | Err(_) => {
-                                        // Профиля нет, возвращаем пустой результат
+                                    Err(e) => {
+                                        warn!("Search error: {}", e);
                                         WsMessage::ProfilesList { profiles: vec![] }
-                                    }
+                                    },
                                 }
                             },
                             None => WsMessage::Error {
