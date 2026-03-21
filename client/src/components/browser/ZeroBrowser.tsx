@@ -4,7 +4,6 @@ import { useWindowFrame } from "../window/useWindowFrame";
 import { playWindowClose, playWindowMaximize, playWindowMinimize, playWindowRestore } from "../../lib/osSounds";
 import { themeIconUrl } from "../../lib/themeIcons";
 import { useAuth } from "../../hooks/useAuth";
-import { ExternalLink } from "lucide-react";
 
 type Props = {
   lang: GameLanguage;
@@ -39,24 +38,6 @@ type Bookmark = {
   custom_name?: string;
   custom_icon_url?: string;
   position: number;
-};
-
-// Доменные имена сайтов
-const BROWSER_DOMAINS = {
-  messenger: "https://zerogram.com",
-  crypto: "https://cryptowallet.network",
-  hosting: {
-    cloudpro: "https://cloudpro.network",
-    fasthost: "https://fasthost.network",
-    securehost: "https://securehost.network",
-    budgethost: "https://budgethost.network",
-  },
-  isp: {
-    freenet: "https://freenet.network",
-    speedmax: "https://speedmax.network",
-    homenet: "https://homenet.network",
-    fiberoptic: "https://fiberoptic.network",
-  },
 };
 
 // Компонент для отображения иконки сайта
@@ -222,17 +203,41 @@ const SYSTEM_PAGES = [
   { url: "zeroday://bookmarks", title: "Bookmarks" },
   { url: "zeroday://settings", title: "Settings" },
   { url: "zeroday://404", title: "Not Found" },
-  { url: "https://zerogram.com", title: "Zerogram" },
-  { url: "https://cryptowallet.network", title: "Crypto Wallet" },
-  { url: "https://cloudpro.network", title: "CloudPro Hosting" },
-  { url: "https://fasthost.network", title: "FastHost" },
-  { url: "https://securehost.network", title: "SecureHost" },
-  { url: "https://budgethost.network", title: "BudgetHost" },
-  { url: "https://freenet.network", title: "FreeNet ISP" },
-  { url: "https://speedmax.network", title: "SpeedMax" },
-  { url: "https://homenet.network", title: "HomeNet" },
-  { url: "https://fiberoptic.network", title: "FiberOptic" },
 ];
+
+const LEGACY_SITE_SLUGS: Record<string, string> = {
+  "zerogram.com": "messenger",
+  "cryptowallet.network": "crypto",
+  "cloudpro.network": "hosting",
+  "fasthost.network": "hosting",
+  "securehost.network": "hosting",
+  "budgethost.network": "hosting",
+  "freenet.network": "isp",
+  "speedmax.network": "isp",
+  "homenet.network": "isp",
+  "fiberoptic.network": "isp",
+};
+
+function resolveSiteSlugFromUrl(siteUrl: string): string | null {
+  if (!siteUrl) return null;
+
+  if (siteUrl.startsWith("zeroday://")) {
+    const remainder = siteUrl.replace("zeroday://", "");
+    const slug = remainder.split(/[/?#]/)[0]?.trim().toLowerCase();
+    return slug || null;
+  }
+
+  try {
+    const hostname = new URL(siteUrl).hostname.toLowerCase();
+    if (LEGACY_SITE_SLUGS[hostname]) {
+      return LEGACY_SITE_SLUGS[hostname];
+    }
+    const firstLabel = hostname.split(".")[0]?.trim().toLowerCase();
+    return firstLabel || null;
+  } catch {
+    return null;
+  }
+}
 
 export function ZeroBrowser({
   lang,
@@ -299,7 +304,7 @@ export function ZeroBrowser({
     const loadData = async () => {
       try {
         const [sitesRes, bookmarksRes, settingsRes] = await Promise.all([
-          fetch("http://127.0.0.1:8000/api/sites"),
+          fetch("http://127.0.0.1:8000/api/browser/sites"),
           fetch(`http://127.0.0.1:8000/api/browser/bookmarks`, {
             headers: { "Authorization": `Bearer ${localStorage.getItem("zeroday.token")}` }
           }),
@@ -310,7 +315,7 @@ export function ZeroBrowser({
 
         if (sitesRes.ok) {
           const json = await sitesRes.json();
-          setSites(json.sites || []);
+          setSites(Array.isArray(json) ? json : (json.sites || []));
         }
 
         if (bookmarksRes.ok) {
@@ -387,6 +392,8 @@ export function ZeroBrowser({
     const isSystemPage = SYSTEM_PAGES.some(p => url.startsWith(p.url));
     const isKnownSite = sites.some(s => s.url === url);
 
+    const legacyKnownSite = Boolean(resolveSiteSlugFromUrl(url));
+
     // Если это не системная страница и не известный сайт, и нет сети - блокируем
     if (!isOnline && !isSystemPage && !isKnownSite) {
       addNotification("error", lang === "ru" ? "Требуется подключение к сети" : "Network connection required");
@@ -414,11 +421,12 @@ export function ZeroBrowser({
     setTimeout(() => {
       const site = sites.find(s => s.url === url);
       const systemPage = SYSTEM_PAGES.find(p => url.startsWith(p.url));
+      const slug = resolveSiteSlugFromUrl(url);
 
       setTabs(prev =>
         prev.map(t =>
           t.id === activeTabId
-            ? { ...t, url, title: site?.name || systemPage?.title || url }
+            ? { ...t, url, title: site?.name || systemPage?.title || (legacyKnownSite && slug ? slug : url) }
             : t
         )
       );
@@ -445,7 +453,7 @@ export function ZeroBrowser({
 
     let url = urlInput.trim();
     
-    // Проверяем, является ли ввод доменом с зоной (например: zerogram.com, cloudpro.network)
+    // Проверяем, является ли ввод доменом с зоной (например: cloudpro.network)
     const domainWithTldRegex = /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
     const hasProtocol = url.startsWith('http://') || url.startsWith('https://') || url.startsWith('zeroday://');
     
@@ -620,7 +628,7 @@ export function ZeroBrowser({
         name: page.title,
         url: page.url,
         description: `Открыть ${page.title}`,
-        icon_url: null,
+        icon_url: undefined,
         category: "system" as const,
         relevance: 25 // Средний приоритет для системных страниц
       }));
@@ -1096,185 +1104,38 @@ export function ZeroBrowser({
       );
     }
 
-    // Hosting sites - требуют подключения к сети
-    if (activeTab?.url.startsWith("https://cloudpro.network") || activeTab?.url.startsWith("https://fasthost.network") || activeTab?.url.startsWith("https://securehost.network") || activeTab?.url.startsWith("https://budgethost.network")) {
-      if (!isOnline) {
-        return (
-          <div className="flex flex-col items-center justify-center h-full p-8">
-            <div className="text-6xl mb-4">📡</div>
-            <h2 className="text-2xl font-bold text-white mb-2">
-              {lang === "ru" ? "Нет подключения к сети" : "No Network Connection"}
-            </h2>
-            <p className="text-slate-400 mb-4">
-              {lang === "ru" ? "Для доступа к этому сайту требуется подключение к интернету" : "Internet connection required to access this site"}
-            </p>
-          </div>
-        );
-      }
-      return (
-        <div className="h-full">
-          <iframe
-            src="http://127.0.0.1:8000/sites/hosting"
-            className="w-full h-full border-0"
-            title="Hosting Provider"
-            sandbox="allow-scripts allow-same-origin allow-forms allow-local-storage allow-modals"
-          />
-        </div>
-      );
-    }
-
-    // ISP sites - требуют подключения к сети
-    if (activeTab?.url.startsWith("https://freenet.network") || activeTab?.url.startsWith("https://speedmax.network") || activeTab?.url.startsWith("https://homenet.network") || activeTab?.url.startsWith("https://fiberoptic.network")) {
-      if (!isOnline) {
-        return (
-          <div className="flex flex-col items-center justify-center h-full p-8">
-            <div className="text-6xl mb-4">📡</div>
-            <h2 className="text-2xl font-bold text-white mb-2">
-              {lang === "ru" ? "Нет подключения к сети" : "No Network Connection"}
-            </h2>
-            <p className="text-slate-400 mb-4">
-              {lang === "ru" ? "Для доступа к этому сайту требуется подключение к интернету" : "Internet connection required to access this site"}
-            </p>
-          </div>
-        );
-      }
-      return (
-        <div className="h-full">
-          <iframe
-            src="http://127.0.0.1:8000/sites/isp"
-            className="w-full h-full border-0"
-            title="ISP Provider"
-            sandbox="allow-scripts allow-same-origin allow-forms allow-local-storage allow-modals"
-          />
-        </div>
-      );
-    }
-
-    // Crypto wallet - требует подключения к сети
-    if (activeTab?.url.startsWith("https://cryptowallet.network")) {
-      if (!isOnline) {
-        return (
-          <div className="flex flex-col items-center justify-center h-full p-8">
-            <div className="text-6xl mb-4">📡</div>
-            <h2 className="text-2xl font-bold text-white mb-2">
-              {lang === "ru" ? "Нет подключения к сети" : "No Network Connection"}
-            </h2>
-            <p className="text-slate-400 mb-4">
-              {lang === "ru" ? "Для доступа к криптокошельку требуется подключение к интернету" : "Internet connection required to access crypto wallet"}
-            </p>
-          </div>
-        );
-      }
-      return (
-        <div className="h-full">
-          <iframe
-            src="http://127.0.0.1:8000/sites/crypto"
-            className="w-full h-full border-0"
-            title="Crypto Wallet"
-            sandbox="allow-scripts allow-same-origin allow-forms allow-local-storage allow-modals"
-          />
-        </div>
-      );
-    }
-
-    // Messenger - требует подключения к сети
-    if (activeTab?.url.startsWith("https://zerogram.com")) {
-      if (!isOnline) {
-        return (
-          <div className="flex flex-col items-center justify-center h-full p-8">
-            <div className="text-6xl mb-4">📡</div>
-            <h2 className="text-2xl font-bold text-white mb-2">
-              {lang === "ru" ? "Нет подключения к сети" : "No Network Connection"}
-            </h2>
-            <p className="text-slate-400 mb-4">
-              {lang === "ru" ? "Для доступа к мессенджеру требуется подключение к интернету" : "Internet connection required to access messenger"}
-            </p>
-          </div>
-        );
-      }
-      // Получаем токен из localStorage игры
-      const token = typeof window !== 'undefined' ? localStorage.getItem('zeroday.token') : null;
-      return (
-        <div className="h-full">
-          <iframe
-            src={`http://127.0.0.1:8000/sites/messenger?token=${token || ''}`}
-            className="w-full h-full border-0"
-            title="ZeroDay Messenger"
-            sandbox="allow-scripts allow-same-origin allow-forms allow-local-storage allow-modals allow-popups"
-          />
-        </div>
-      );
-    }
-
-    // Real search - redirect to external search engine
-    if (activeTab?.url.startsWith("zeroday://search")) {
-      const urlParams = new URLSearchParams(activeTab.url.replace("zeroday://search?", ""));
-      const query = urlParams.get("q") || "";
-      
-      if (query) {
-        // Open external search in new tab/window simulation
-        return (
-          <div className="flex flex-col items-center justify-center h-full p-8">
-            <div className="text-center mb-8">
-              <h2 className="text-2xl font-bold text-white mb-4">
-                {lang === "ru" ? "Поиск: " : "Search: "}"{query}"
-              </h2>
-              <p className="text-slate-400 mb-6">
-                {lang === "ru" 
-                  ? "Открываем результаты поиска во внешней поисковой системе..." 
-                  : "Opening search results in external search engine..."}
-              </p>
-              <a
-                href={`https://www.google.com/search?q=${encodeURIComponent(query)}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 px-6 py-3 bg-[#ff7139] hover:bg-[#ff5a2a] text-white rounded-lg font-medium transition"
-              >
-                <ExternalLink className="w-4 h-4" />
-                {lang === "ru" ? "Открыть в Google" : "Open in Google"}
-              </a>
-            </div>
-            <div className="text-slate-500 text-sm">
-              {lang === "ru" 
-                ? "Примечание: В реальной игре поиск будет работать внутри браузера" 
-                : "Note: In the actual game, search will work inside the browser"}
-            </div>
-          </div>
-        );
-      }
-      
-      // Search page without query
-      return (
-        <div className="flex flex-col items-center justify-center h-full p-8">
-          <h1 className="text-4xl font-bold text-white mb-8">
-            <span className="text-[#ff7139]">Zero</span>Search
-          </h1>
-          <form onSubmit={handleSearch} className="w-full max-w-2xl">
-            <div className="flex items-center bg-[#1a1f29] rounded-full border border-white/10 focus-within:border-[#ff7139]/50 transition">
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder={lang === "ru" ? "Введите запрос..." : "Enter search query..."}
-                className="flex-1 bg-transparent px-6 py-4 text-white placeholder-slate-500 outline-none"
-              />
-              <button
-                type="submit"
-                className="m-1 px-6 py-3 bg-[#ff7139] hover:bg-[#ff5a2a] text-white rounded-full font-medium transition"
-              >
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-              </button>
-            </div>
-          </form>
-        </div>
-      );
-    }
-
-    // Known site page
     const site = sites.find(s => s.url === activeTab?.url);
     if (site) {
+      if (!isOnline && !site.url.startsWith("zeroday://")) {
+        return (
+          <div className="flex flex-col items-center justify-center h-full p-8">
+            <div className="text-6xl mb-4">📡</div>
+            <h2 className="text-2xl font-bold text-white mb-2">
+              {lang === "ru" ? "Нет подключения к сети" : "No Network Connection"}
+            </h2>
+            <p className="text-slate-400 mb-4">
+              {lang === "ru" ? "Для доступа к этому сайту требуется подключение к интернету" : "Internet connection required to access this site"}
+            </p>
+          </div>
+        );
+      }
+
+      const slug = resolveSiteSlugFromUrl(site.url);
+      if (slug) {
+        const token = typeof window !== "undefined" ? localStorage.getItem("zeroday.token") : null;
+        const iframeSrc = `http://127.0.0.1:8000/sites/${encodeURIComponent(slug)}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+        return (
+          <div className="h-full">
+            <iframe
+              src={iframeSrc}
+              className="w-full h-full border-0"
+              title={site.name}
+              sandbox="allow-scripts allow-same-origin allow-forms allow-local-storage allow-modals allow-popups"
+            />
+          </div>
+        );
+      }
+
       return (
         <div className="flex flex-col items-center justify-center h-full">
           <SiteIcon url={site.icon_url} alt={site.name} size="xl" />
@@ -1290,6 +1151,25 @@ export function ZeroBrowser({
           )}
         </div>
       );
+    }
+
+    // Открытие legacy-доменов напрямую через универсальный backend site router.
+    if (activeTab?.url && !activeTab.url.startsWith("zeroday://")) {
+      const slug = resolveSiteSlugFromUrl(activeTab.url);
+      if (slug) {
+        const token = typeof window !== "undefined" ? localStorage.getItem("zeroday.token") : null;
+        const iframeSrc = `http://127.0.0.1:8000/sites/${encodeURIComponent(slug)}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+        return (
+          <div className="h-full">
+            <iframe
+              src={iframeSrc}
+              className="w-full h-full border-0"
+              title={slug}
+              sandbox="allow-scripts allow-same-origin allow-forms allow-local-storage allow-modals allow-popups"
+            />
+          </div>
+        );
+      }
     }
 
     // Default fallback

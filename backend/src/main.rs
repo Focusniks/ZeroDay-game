@@ -3,7 +3,7 @@ use actix_web::{middleware::Logger, web, App, HttpRequest, HttpResponse, HttpSer
 use dotenvy::dotenv;
 use log::info;
 use serde::{Deserialize, Serialize};
-use sqlx::{Postgres, QueryBuilder};
+use sqlx::{Postgres, QueryBuilder, Row};
 use sqlx::PgPool;
 use std::env;
 use std::path::Path;
@@ -22,6 +22,25 @@ struct AppState {
 async fn health() -> impl Responder {
     HttpResponse::Ok().json(serde_json::json!({ "ok": true }))
 }
+
+async fn debug_db(pool: web::Data<PgPool>) -> impl Responder {
+    // Простая проверка подключения
+    let result = sqlx::query_scalar::<_, i64>("SELECT 1")
+        .fetch_one(pool.get_ref())
+        .await;
+    
+    match result {
+        Ok(val) => HttpResponse::Ok().json(serde_json::json!({
+            "ok": true,
+            "db_test": val
+        })),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
+            "ok": false,
+            "error": format!("DB error: {}", e)
+        }))
+    }
+}
+
 
 #[derive(Deserialize)]
 struct RegisterPayload {
@@ -1780,6 +1799,7 @@ async fn main() -> anyhow::Result<()> {
             .wrap(cors)
             .wrap(Logger::default())
             .route("/health", web::get().to(health))
+            .route("/debug/db", web::get().to(debug_db))
             .route("/auth/register", web::post().to(register_http))
             .route("/auth/login", web::post().to(login_http))
             .route("/auth/me", web::get().to(me_http))

@@ -6,6 +6,9 @@ use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, FromRow};
 use uuid::Uuid;
 use chrono::{DateTime, Utc};
+use serde_json::Value as JsonValue;
+
+use crate::websocket::WsMessage;
 
 // ==================== МОДЕЛИ ====================
 
@@ -21,6 +24,68 @@ pub struct MessengerProfile {
     pub is_setup_complete: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    
+    // Новые поля из migration 015
+    #[sqlx(default)]
+    pub custom_user_id: Option<String>,
+    #[sqlx(default)]
+    pub theme_settings: Option<JsonValue>,
+    #[sqlx(default)]
+    pub notification_settings: Option<JsonValue>,
+}
+
+/// Статус пользователя (онлайн/оффлайн)
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct UserOnlineStatus {
+    pub user_id: Uuid,
+    pub is_online: bool,
+    pub last_seen: DateTime<Utc>,
+    pub last_activity: DateTime<Utc>,
+}
+
+/// Файл сообщения
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct MessengerFile {
+    pub id: Uuid,
+    pub message_id: Uuid,
+    pub sender_user_id: Uuid,
+    pub file_name: String,
+    pub file_size: i64,
+    pub mime_type: String,
+    pub file_type: String,
+    pub storage_path: Option<String>,
+    pub file_url: Option<String>,
+    pub width: Option<i32>,
+    pub height: Option<i32>,
+    pub duration: Option<i32>,
+    pub file_hash: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub downloaded_count: i32,
+}
+
+/// Реакция на сообщение
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct MessageReaction {
+    pub id: Uuid,
+    pub message_id: Uuid,
+    pub user_id: Uuid,
+    pub emoji: String,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Контакт с расширенной информацией
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct ContactWithStatus {
+    pub id: Uuid,
+    pub contact_user_id: Uuid,
+    pub contact_display_name: String,
+    pub contact_messenger_id: String,
+    pub contact_avatar_url: Option<String>,
+    pub custom_name: Option<String>,
+    pub is_online: bool,
+    pub last_seen: Option<DateTime<Utc>>,
+    pub last_activity: Option<DateTime<Utc>>,
+    pub added_at: DateTime<Utc>,
 }
 
 /// Контакт/друг
@@ -71,21 +136,25 @@ pub struct ConversationWithLastMessage {
     pub updated_at: DateTime<Utc>,
     pub last_message: Option<LastMessageInfo>,
     pub unread_count: i64,
+    pub other_user: Option<OtherUserInfo>,
 }
 
 /// Информация о другом пользователе в чате
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct OtherUserInfo {
+    pub conversation_id: Uuid,
     pub id: Uuid,
     pub username: String,
     pub avatar_url: Option<String>,
     pub is_online: bool,
+    pub last_seen: Option<DateTime<Utc>>,
 }
 
 /// Последнее сообщение в чате
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct LastMessageInfo {
     pub id: Uuid,
+    pub conversation_id: Uuid,
     pub content: String,
     pub sender_id: Uuid,
     pub sender_username: Option<String>,
@@ -370,34 +439,51 @@ pub async fn respond_to_friend_request(
         .execute(&mut *tx)
         .await?;
         
-        // Создаём чат между пользователями
-        let conv_id = sqlx::query_scalar::<_, Uuid>(
+        // Гарантируем ровно один личный чат на пару пользователей.
+        let existing_conv_id = sqlx::query_scalar::<_, Uuid>(
             r#"
-            INSERT INTO conversations (created_by, is_group, created_at, updated_at)
-            VALUES ($1, false, NOW(), NOW())
-            RETURNING id
+            SELECT c.id
+            FROM conversations c
+            JOIN conversation_members cm1 ON cm1.conversation_id = c.id AND cm1.user_id = $1
+            JOIN conversation_members cm2 ON cm2.conversation_id = c.id AND cm2.user_id = $2
+            WHERE c.is_group = false
+              AND (SELECT COUNT(*) FROM conversation_members cm WHERE cm.conversation_id = c.id) = 2
+            LIMIT 1
             "#
         )
         .bind(&user_uuid)
-        .fetch_one(&mut *tx)
-        .await?;
-        
-        // Добавляем участников
-        sqlx::query(
-            "INSERT INTO conversation_members (conversation_id, user_id, role) VALUES ($1, $2, 'member')"
-        )
-        .bind(&conv_id)
-        .bind(&user_uuid)
-        .execute(&mut *tx)
-        .await?;
-        
-        sqlx::query(
-            "INSERT INTO conversation_members (conversation_id, user_id, role) VALUES ($1, $2, 'member')"
-        )
-        .bind(&conv_id)
         .bind(&sender_id)
-        .execute(&mut *tx)
+        .fetch_optional(&mut *tx)
         .await?;
+
+        if existing_conv_id.is_none() {
+            let conv_id = sqlx::query_scalar::<_, Uuid>(
+                r#"
+                INSERT INTO conversations (created_by, is_group, created_at, updated_at)
+                VALUES ($1, false, NOW(), NOW())
+                RETURNING id
+                "#
+            )
+            .bind(&user_uuid)
+            .fetch_one(&mut *tx)
+            .await?;
+
+            sqlx::query(
+                "INSERT INTO conversation_members (conversation_id, user_id, role) VALUES ($1, $2, 'member')"
+            )
+            .bind(&conv_id)
+            .bind(&user_uuid)
+            .execute(&mut *tx)
+            .await?;
+
+            sqlx::query(
+                "INSERT INTO conversation_members (conversation_id, user_id, role) VALUES ($1, $2, 'member')"
+            )
+            .bind(&conv_id)
+            .bind(&sender_id)
+            .execute(&mut *tx)
+            .await?;
+        }
     }
     
     tx.commit().await?;
@@ -458,69 +544,158 @@ pub async fn remove_contact(
 }
 
 /// Получить конверсации пользователя (с последними сообщениями)
+/// Оптимизированная версия с batch запросами
+/// Сортировка по времени последнего сообщения
 pub async fn get_user_conversations(
     pool: &PgPool,
     user_id: &str,
 ) -> Result<Vec<ConversationWithLastMessage>, sqlx::Error> {
-    // Конвертируем user_id в Uuid
     let user_uuid = Uuid::parse_str(user_id)
         .unwrap_or(Uuid::nil());
 
-    // Получаем базовые данные конверсаций
+    // Получаем все конверсации с временем последнего сообщения через подзапрос
     let conversations = sqlx::query_as::<_, Conversation>(
         r#"
-        SELECT c.id, c.name, c.avatar_url, c.created_by, c.is_group, c.created_at, c.updated_at
+        SELECT 
+            c.id, c.name, c.avatar_url, c.created_by, c.is_group,
+            COALESCE(lm.last_message_at, c.created_at) as created_at,
+            COALESCE(lm.last_message_at, c.updated_at) as updated_at
         FROM conversations c
         JOIN conversation_members cm ON c.id = cm.conversation_id
+        LEFT JOIN LATERAL (
+            SELECT MAX(m.created_at) as last_message_at
+            FROM messages m
+            WHERE m.conversation_id = c.id AND m.deleted = false
+        ) lm ON true
         WHERE cm.user_id = $1
-        ORDER BY c.updated_at DESC
+        ORDER BY COALESCE(lm.last_message_at, c.created_at) DESC
+        LIMIT 100
         "#
     )
     .bind(&user_uuid)
     .fetch_all(pool)
     .await?;
 
-    // Для каждой конверсации получаем последнее сообщение и unread count
-    let mut result = Vec::new();
-    for conv in conversations {
-        let last_message = sqlx::query_as::<_, LastMessageInfo>(
-            r#"
-            SELECT m.id, m.content, m.sender_id, mp.messenger_id as sender_username, m.created_at
-            FROM messages m
-            LEFT JOIN messenger_profiles mp ON mp.user_id = m.sender_id
-            WHERE m.conversation_id = $1 AND m.deleted = false
-            ORDER BY m.created_at DESC
-            LIMIT 1
-            "#
-        )
-        .bind(&conv.id)
-        .fetch_optional(pool)
-        .await?;
-
-        let unread_count = sqlx::query_scalar::<_, i64>(
-            r#"
-            SELECT COUNT(*) FROM messages m
-            LEFT JOIN message_read_receipts mrr ON mrr.message_id = m.id AND mrr.user_id = $1
-            WHERE m.conversation_id = $2 AND m.sender_id != $1 AND mrr.message_id IS NULL AND m.deleted = false
-            "#
-        )
-        .bind(&user_uuid)
-        .bind(&conv.id)
-        .fetch_one(pool)
-        .await?;
-
-        result.push(ConversationWithLastMessage {
-            id: conv.id,
-            name: conv.name,
-            avatar_url: conv.avatar_url,
-            created_by: conv.created_by,
-            is_group: conv.is_group,
-            created_at: conv.created_at,
-            updated_at: conv.updated_at,
-            last_message,
-            unread_count,
-        });
+    if conversations.is_empty() {
+        return Ok(vec![]);
     }
+
+    // Собираем все conversation_id для batch запросов
+    let conv_ids: Vec<Uuid> = conversations.iter().map(|c| c.id).collect();
+
+    // Получаем последние сообщения для всех чатов одним запросом
+    let last_messages = sqlx::query_as::<_, LastMessageInfo>(
+        r#"
+        SELECT DISTINCT ON (m.conversation_id)
+            m.id, m.conversation_id, m.content, m.sender_id,
+            mp.messenger_id as sender_username, m.created_at
+        FROM messages m
+        LEFT JOIN messenger_profiles mp ON mp.user_id = m.sender_id
+        WHERE m.conversation_id = ANY($1) AND m.deleted = false
+        ORDER BY m.conversation_id, m.created_at DESC
+        "#
+    )
+    .bind(&conv_ids)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    // Получаем unread count для всех чатов одним запросом
+    let unread_counts = sqlx::query_scalar::<_, (Uuid, i64)>(
+        r#"
+        SELECT m.conversation_id, COUNT(*)::bigint as unread_count
+        FROM messages m
+        LEFT JOIN message_read_receipts mrr ON mrr.message_id = m.id AND mrr.user_id = $1
+        WHERE m.conversation_id = ANY($2)
+        AND m.sender_id != $1
+        AND mrr.message_id IS NULL
+        AND m.deleted = false
+        GROUP BY m.conversation_id
+        "#
+    )
+    .bind(&user_uuid)
+    .bind(&conv_ids)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    let unread_map: std::collections::HashMap<Uuid, i64> = unread_counts.into_iter().collect();
+
+    // Получаем других пользователей для личных чатов с last_seen
+    let other_users = sqlx::query_as::<_, OtherUserInfo>(
+        r#"
+        SELECT 
+            cm.conversation_id,
+            u.id,
+            COALESCE(mp.display_name, u.username) as username,
+            mp.avatar_url as avatar_url,
+            COALESCE(uos.is_online, false) as is_online,
+            uos.last_seen
+        FROM conversation_members cm
+        JOIN users u ON u.id = cm.user_id
+        LEFT JOIN messenger_profiles mp ON mp.user_id = u.id
+        LEFT JOIN user_online_status uos ON uos.user_id = u.id
+        WHERE cm.conversation_id = ANY($1)
+        AND cm.user_id != $2
+        AND (
+            SELECT COUNT(*) FROM conversation_members cm2
+            WHERE cm2.conversation_id = cm.conversation_id
+        ) = 2
+        "#
+    )
+    .bind(&conv_ids)
+    .bind(&user_uuid)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    let other_user_map: std::collections::HashMap<Uuid, OtherUserInfo> = 
+        other_users.into_iter()
+            .map(|u| (u.conversation_id, u))
+            .collect();
+
+    // Сопоставляем сообщения с конверсациями
+    let last_msg_map: std::collections::HashMap<Uuid, LastMessageInfo> = last_messages
+        .into_iter()
+        .map(|lm| (lm.conversation_id, lm))
+        .collect();
+
+    // Формируем результат
+    let mut result: Vec<ConversationWithLastMessage> = conversations
+        .into_iter()
+        .map(|conv| {
+            let last_message = last_msg_map.get(&conv.id).cloned();
+            let unread_count = *unread_map.get(&conv.id).unwrap_or(&0);
+            let other_user = if conv.is_group {
+                None
+            } else {
+                other_user_map.get(&conv.id).map(|ou| OtherUserInfo {
+                    id: ou.id,
+                    username: ou.username.clone(),
+                    avatar_url: ou.avatar_url.clone(),
+                    is_online: ou.is_online,
+                    conversation_id: ou.conversation_id,
+                    last_seen: ou.last_seen,
+                })
+            };
+
+            ConversationWithLastMessage {
+                id: conv.id,
+                name: conv.name,
+                avatar_url: conv.avatar_url,
+                created_by: conv.created_by,
+                is_group: conv.is_group,
+                created_at: conv.created_at,
+                updated_at: conv.updated_at,
+                last_message,
+                unread_count,
+                other_user,
+            }
+        })
+        .collect();
+
+    // Сортируем по времени последнего сообщения (updated_at)
+    result.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
 
     Ok(result)
 }
@@ -634,6 +809,38 @@ pub async fn create_conversation(
     name: Option<String>,
     is_group: bool,
 ) -> Result<Conversation, anyhow::Error> {
+    // Для личного чата ищем существующий 1:1 и не создаём дубликаты.
+    if !is_group {
+        let creator_uuid = Uuid::parse_str(creator_id)
+            .map_err(|e| anyhow::anyhow!("Invalid creator_id: {}", e))?;
+        let target_uuid = member_ids
+            .iter()
+            .filter_map(|id| Uuid::parse_str(id).ok())
+            .find(|id| *id != creator_uuid)
+            .ok_or_else(|| anyhow::anyhow!("Direct conversation requires exactly one contact"))?;
+
+        let existing_conv_id = sqlx::query_scalar::<_, Uuid>(
+            r#"
+            SELECT c.id
+            FROM conversations c
+            JOIN conversation_members cm1 ON cm1.conversation_id = c.id AND cm1.user_id = $1
+            JOIN conversation_members cm2 ON cm2.conversation_id = c.id AND cm2.user_id = $2
+            WHERE c.is_group = false
+              AND (SELECT COUNT(*) FROM conversation_members cm WHERE cm.conversation_id = c.id) = 2
+            LIMIT 1
+            "#
+        )
+        .bind(&creator_uuid)
+        .bind(&target_uuid)
+        .fetch_optional(pool)
+        .await?;
+
+        if let Some(conv_id) = existing_conv_id {
+            let conv = get_conversation_by_id(pool, &conv_id, creator_id).await?;
+            return conv.ok_or_else(|| anyhow::anyhow!("Conversation not found"));
+        }
+    }
+
     let mut tx = pool.begin().await?;
     
     // Конвертируем creator_id в Uuid
@@ -750,6 +957,7 @@ pub async fn send_message_full(
 }
 
 /// Транслировать сообщение всем участникам конверсации (кроме отправителя)
+/// Также отправляет обновлённый список чатов
 pub async fn broadcast_to_conversation(
     connections: &tokio::sync::RwLock<std::collections::HashMap<String, tokio::sync::mpsc::UnboundedSender<String>>>,
     conversation_id: &str,
@@ -777,7 +985,15 @@ pub async fn broadcast_to_conversation(
     for member_id in member_ids {
         if member_id != sender_id {
             if let Some(tx) = conns.get(&member_id) {
+                // Отправляем сообщение
                 let _ = tx.send(message_json.to_string());
+                
+                // Отправляем обновлённый список чатов
+                if let Ok(conversations) = get_user_conversations(pool, &member_id).await {
+                    if let Ok(conversations_json) = serde_json::to_string(&WsMessage::ConversationsList { conversations }) {
+                        let _ = tx.send(conversations_json);
+                    }
+                }
             }
         }
     }
@@ -845,4 +1061,322 @@ pub async fn send_message(
     _reply_to_id: Option<String>,
 ) -> Result<Message, sqlx::Error> {
     send_message_full(pool, sender_id, conversation_id, content, None, None, None).await
+}
+
+// ==================== ОНЛАЙН СТАТУС ====================
+
+/// Обновить статус онлайн пользователя
+pub async fn set_user_online(pool: &PgPool, user_id: &str, is_online: bool) -> Result<(), sqlx::Error> {
+    let user_uuid = Uuid::parse_str(user_id)
+        .map_err(|e| sqlx::Error::Protocol(format!("Invalid user_id: {}", e)))?;
+    
+    sqlx::query(
+        r#"
+        INSERT INTO user_online_status (user_id, is_online, last_seen, last_activity)
+        VALUES ($1, $2, NOW(), NOW())
+        ON CONFLICT (user_id) DO UPDATE SET
+            is_online = $2,
+            last_activity = NOW(),
+            last_seen = CASE WHEN $2 THEN user_online_status.last_seen ELSE NOW() END
+        "#
+    )
+    .bind(&user_uuid)
+    .bind(is_online)
+    .execute(pool)
+    .await?;
+    
+    Ok(())
+}
+
+/// Получить статус онлайн пользователя
+pub async fn get_user_online_status(pool: &PgPool, user_id: &str) -> Result<Option<UserOnlineStatus>, sqlx::Error> {
+    let user_uuid = Uuid::parse_str(user_id)
+        .map_err(|e| sqlx::Error::Protocol(format!("Invalid user_id: {}", e)))?;
+    
+    sqlx::query_as::<_, UserOnlineStatus>(
+        "SELECT * FROM user_online_status WHERE user_id = $1"
+    )
+    .bind(&user_uuid)
+    .fetch_optional(pool)
+    .await
+}
+
+/// Получить статусы онлайн для нескольких пользователей
+pub async fn get_users_online_status(pool: &PgPool, user_ids: &[String]) -> Result<Vec<UserOnlineStatus>, sqlx::Error> {
+    let uuids: Vec<Uuid> = user_ids
+        .iter()
+        .filter_map(|id| Uuid::parse_str(id).ok())
+        .collect();
+    
+    if uuids.is_empty() {
+        return Ok(vec![]);
+    }
+    
+    sqlx::query_as::<_, UserOnlineStatus>(
+        "SELECT * FROM user_online_status WHERE user_id = ANY($1)"
+    )
+    .bind(&uuids)
+    .fetch_all(pool)
+    .await
+}
+
+/// Обновить последнюю активность пользователя
+pub async fn update_user_activity(pool: &PgPool, user_id: &str) -> Result<(), sqlx::Error> {
+    let user_uuid = Uuid::parse_str(user_id)
+        .map_err(|e| sqlx::Error::Protocol(format!("Invalid user_id: {}", e)))?;
+    
+    sqlx::query(
+        r#"
+        INSERT INTO user_online_status (user_id, is_online, last_seen, last_activity)
+        VALUES ($1, TRUE, NOW(), NOW())
+        ON CONFLICT (user_id) DO UPDATE SET
+            last_activity = NOW(),
+            is_online = TRUE
+        "#
+    )
+    .bind(&user_uuid)
+    .execute(pool)
+    .await?;
+    
+    Ok(())
+}
+
+// ==================== НАСТРОЙКИ ПРОФИЛЯ ====================
+
+/// Обновить настройки профиля (кастомный user_id, avatar, display_name)
+pub async fn update_profile_settings(
+    pool: &PgPool,
+    user_id: &str,
+    display_name: Option<&str>,
+    avatar_url: Option<&str>,
+    about: Option<&str>,
+    custom_user_id: Option<&str>,
+) -> Result<MessengerProfile, anyhow::Error> {
+    let user_uuid = Uuid::parse_str(user_id)
+        .map_err(|e| anyhow::anyhow!("Invalid user_id: {}", e))?;
+    
+    // Проверяем занятость custom_user_id если он указан
+    if let Some(custom_id) = custom_user_id {
+        if !custom_id.is_empty() {
+            let exists = sqlx::query_scalar::<_, bool>(
+                r#"SELECT EXISTS(SELECT 1 FROM messenger_profiles WHERE custom_user_id = $1 AND user_id != $2)"#
+            )
+            .bind(custom_id)
+            .bind(&user_uuid)
+            .fetch_one(pool)
+            .await?;
+            
+            if exists {
+                return Err(anyhow::anyhow!("Этот пользовательский ID уже занят"));
+            }
+        }
+    }
+    
+    // Обновляем профиль
+    let profile = sqlx::query_as::<_, MessengerProfile>(
+        r#"
+        UPDATE messenger_profiles
+        SET
+            display_name = COALESCE($2, display_name),
+            avatar_url = COALESCE($3, avatar_url),
+            about = COALESCE($4, about),
+            custom_user_id = CASE WHEN $5 = '' THEN NULL ELSE COALESCE($5, custom_user_id) END,
+            updated_at = NOW()
+        WHERE user_id = $1
+        RETURNING *
+        "#
+    )
+    .bind(&user_uuid)
+    .bind(&display_name)
+    .bind(&avatar_url)
+    .bind(&about)
+    .bind(&custom_user_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| anyhow::anyhow!("Failed to update profile: {}", e))?;
+    
+    Ok(profile)
+}
+
+/// Загрузить файл сообщения
+pub async fn upload_message_file(
+    pool: &PgPool,
+    message_id: &str,
+    sender_id: &str,
+    file_name: &str,
+    file_size: i64,
+    mime_type: &str,
+    file_type: &str,
+    storage_path: Option<&str>,
+    file_url: Option<&str>,
+    width: Option<i32>,
+    height: Option<i32>,
+    duration: Option<i32>,
+) -> Result<MessengerFile, anyhow::Error> {
+    let msg_uuid = Uuid::parse_str(message_id)
+        .map_err(|e| anyhow::anyhow!("Invalid message_id: {}", e))?;
+    
+    let sender_uuid = Uuid::parse_str(sender_id)
+        .map_err(|e| anyhow::anyhow!("Invalid sender_id: {}", e))?;
+    
+    let file = sqlx::query_as::<_, MessengerFile>(
+        r#"
+        INSERT INTO messenger_files (
+            message_id, sender_user_id, file_name, file_size, mime_type, file_type,
+            storage_path, file_url, width, height, duration
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        RETURNING *
+        "#
+    )
+    .bind(&msg_uuid)
+    .bind(&sender_uuid)
+    .bind(file_name)
+    .bind(file_size)
+    .bind(mime_type)
+    .bind(file_type)
+    .bind(&storage_path)
+    .bind(&file_url)
+    .bind(&width)
+    .bind(&height)
+    .bind(&duration)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| anyhow::anyhow!("Failed to upload file: {}", e))?;
+    
+    Ok(file)
+}
+
+/// Добавить реакцию на сообщение
+pub async fn add_message_reaction(
+    pool: &PgPool,
+    message_id: &str,
+    user_id: &str,
+    emoji: &str,
+) -> Result<MessageReaction, anyhow::Error> {
+    let msg_uuid = Uuid::parse_str(message_id)
+        .map_err(|e| anyhow::anyhow!("Invalid message_id: {}", e))?;
+    
+    let user_uuid = Uuid::parse_str(user_id)
+        .map_err(|e| anyhow::anyhow!("Invalid user_id: {}", e))?;
+    
+    let reaction = sqlx::query_as::<_, MessageReaction>(
+        r#"
+        INSERT INTO message_reactions (message_id, user_id, emoji)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (message_id, user_id, emoji) DO NOTHING
+        RETURNING *
+        "#
+    )
+    .bind(&msg_uuid)
+    .bind(&user_uuid)
+    .bind(emoji)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| anyhow::anyhow!("Failed to add reaction: {}", e))?;
+    
+    Ok(reaction)
+}
+
+/// Удалить реакцию с сообщения
+pub async fn remove_message_reaction(
+    pool: &PgPool,
+    message_id: &str,
+    user_id: &str,
+    emoji: &str,
+) -> Result<(), anyhow::Error> {
+    let msg_uuid = Uuid::parse_str(message_id)
+        .map_err(|e| anyhow::anyhow!("Invalid message_id: {}", e))?;
+    
+    let user_uuid = Uuid::parse_str(user_id)
+        .map_err(|e| anyhow::anyhow!("Invalid user_id: {}", e))?;
+    
+    sqlx::query(
+        "DELETE FROM message_reactions WHERE message_id = $1 AND user_id = $2 AND emoji = $3"
+    )
+    .bind(&msg_uuid)
+    .bind(&user_uuid)
+    .bind(emoji)
+    .execute(pool)
+    .await?;
+    
+    Ok(())
+}
+
+/// Получить реакции на сообщение
+pub async fn get_message_reactions(
+    pool: &PgPool,
+    message_id: &str,
+) -> Result<Vec<MessageReaction>, sqlx::Error> {
+    let msg_uuid = Uuid::parse_str(message_id)
+        .map_err(|e| sqlx::Error::Protocol(format!("Invalid message_id: {}", e)))?;
+    
+    sqlx::query_as::<_, MessageReaction>(
+        "SELECT * FROM message_reactions WHERE message_id = $1 ORDER BY created_at"
+    )
+    .bind(&msg_uuid)
+    .fetch_all(pool)
+    .await
+}
+
+/// Установить кастомное имя для контакта
+pub async fn set_custom_contact_name(
+    pool: &PgPool,
+    user_id: &str,
+    contact_user_id: &str,
+    custom_name: Option<&str>,
+) -> Result<(), anyhow::Error> {
+    let owner_uuid = Uuid::parse_str(user_id)
+        .map_err(|e| anyhow::anyhow!("Invalid user_id: {}", e))?;
+    
+    let contact_uuid = Uuid::parse_str(contact_user_id)
+        .map_err(|e| anyhow::anyhow!("Invalid contact_user_id: {}", e))?;
+    
+    sqlx::query(
+        r#"
+        UPDATE messenger_contacts
+        SET custom_name = $3
+        WHERE owner_user_id = $1 AND contact_user_id = $2
+        "#
+    )
+    .bind(&owner_uuid)
+    .bind(&contact_uuid)
+    .bind(&custom_name)
+    .execute(pool)
+    .await?;
+    
+    Ok(())
+}
+
+/// Получить контакты с онлайн-статусом
+pub async fn get_contacts_with_status(
+    pool: &PgPool,
+    user_id: &str,
+) -> Result<Vec<ContactWithStatus>, sqlx::Error> {
+    let user_uuid = Uuid::parse_str(user_id)
+        .unwrap_or(Uuid::nil());
+
+    sqlx::query_as::<_, ContactWithStatus>(
+        r#"
+        SELECT
+            mc.id,
+            mc.contact_user_id,
+            mp.display_name as contact_display_name,
+            mp.messenger_id as contact_messenger_id,
+            mp.avatar_url as contact_avatar_url,
+            mc.custom_name,
+            COALESCE(uos.is_online, FALSE) as is_online,
+            uos.last_seen,
+            uos.last_activity,
+            mc.created_at as added_at
+        FROM messenger_contacts mc
+        JOIN messenger_profiles mp ON mp.user_id = mc.contact_user_id
+        LEFT JOIN user_online_status uos ON uos.user_id = mc.contact_user_id
+        WHERE mc.owner_user_id = $1 AND mc.status = 'accepted'
+        ORDER BY COALESCE(mc.custom_name, mp.display_name)
+        "#
+    )
+    .bind(&user_uuid)
+    .fetch_all(pool)
+    .await
 }

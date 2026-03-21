@@ -8,6 +8,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, RwLock};
+use tokio::time::{Duration, interval};
 use tokio_tungstenite::{
     accept_async,
     tungstenite::Message,
@@ -19,6 +20,16 @@ use crate::messenger;
 
 /// Глобальное хранилище активных WebSocket подключений
 pub type SharedConnections = Arc<RwLock<HashMap<String, mpsc::UnboundedSender<String>>>>;
+
+/// Данные файла для отправки через WebSocket
+#[derive(Serialize, Deserialize, Clone)]
+pub struct SendMessageFile {
+    pub file_name: String,
+    pub file_size: i64,
+    pub mime_type: String,
+    pub file_type: String, // image, video, audio, document
+    pub data_base64: String, // Base64 encoded содержимое файла
+}
 
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(tag = "type")]
@@ -62,6 +73,8 @@ pub enum WsMessage {
         message_type: Option<String>,
         media_url: Option<String>,
         reply_to_id: Option<String>,
+        // Для файлов (base64 encoded данные)
+        file_data: Option<SendMessageFile>,
     },
     MarkAsRead {
         conversation_id: String,
@@ -86,6 +99,13 @@ pub enum WsMessage {
         avatar_url: Option<String>,
         about: Option<String>,
     },
+    // Обновление настроек профиля (новое)
+    UpdateProfileSettings {
+        display_name: Option<String>,
+        avatar_url: Option<String>,
+        about: Option<String>,
+        custom_user_id: Option<String>,
+    },
     SearchUsers {
         query: String,
     },
@@ -98,6 +118,18 @@ pub enum WsMessage {
         accept: bool,
     },
     GetContacts,
+    // Контакты с онлайн-статусом (новое)
+    GetContactsOnline,
+    // Кастомное имя контакта (новое)
+    SetCustomContactName {
+        contact_user_id: String,
+        custom_name: Option<String>,
+    },
+    // Онлайн статус (новое)
+    GetOnlineStatus {
+        user_ids: Vec<String>,
+    },
+    UpdateActivity, // Обновить активность (heartbeat)
     RemoveContact {
         contact_user_id: String,
     },
@@ -107,7 +139,7 @@ pub enum WsMessage {
 
     // Messenger responses
     ConversationCreated {
-        conversation: messenger::Conversation,
+        conversation: messenger::ConversationWithLastMessage,
     },
     ConversationsList {
         conversations: Vec<messenger::ConversationWithLastMessage>,
@@ -146,6 +178,10 @@ pub enum WsMessage {
     ContactsList {
         contacts: Vec<messenger::Contact>,
     },
+    // Контакты с онлайн-статусом (новое)
+    ContactsOnlineList {
+        contacts: Vec<messenger::ContactWithStatus>,
+    },
     FriendRequestsList {
         requests: Vec<messenger::FriendRequest>,
     },
@@ -155,6 +191,22 @@ pub enum WsMessage {
     FriendRequestResponded {
         request_id: String,
         accepted: bool,
+    },
+    // Онлайн статус (новое)
+    OnlineStatus {
+        statuses: Vec<messenger::UserOnlineStatus>,
+    },
+    // Файлы (новое)
+    FileUploaded {
+        file: messenger::MessengerFile,
+    },
+    // Реакции (новое)
+    ReactionAdded {
+        reaction: messenger::MessageReaction,
+    },
+    ReactionRemoved {
+        message_id: String,
+        emoji: String,
     },
 
     // Common responses
@@ -183,6 +235,12 @@ pub async fn run_ws_server(
 
     info!("WebSocket server listening on ws://{addr}");
 
+    // Запускаем фоновую задачу для мониторинга неактивных пользователей
+    let monitor_pool = pool.clone();
+    tokio::spawn(async move {
+        run_online_status_monitor(monitor_pool).await;
+    });
+
     loop {
         let (stream, peer) = listener.accept().await?;
         let pool = pool.clone();
@@ -193,6 +251,35 @@ pub async fn run_ws_server(
                 error!("ws connection error: {e:#}");
             }
         });
+    }
+}
+
+/// Фоновая задача для проверки неактивных пользователей
+/// Ставит пользователей в оффлайн после 30 секунд неактивности
+async fn run_online_status_monitor(pool: PgPool) {
+    let mut interval = interval(Duration::from_secs(10)); // Проверяем каждые 10 секунд
+    
+    loop {
+        interval.tick().await;
+        
+        // Находим пользователей, у которых last_activity > 30 секунд назад
+        // и ставим их в оффлайн
+        let result = sqlx::query(
+            r#"
+            UPDATE user_online_status
+            SET is_online = FALSE, last_seen = NOW()
+            WHERE is_online = TRUE
+            AND last_activity < NOW() - INTERVAL '30 seconds'
+            "#
+        )
+        .execute(&pool)
+        .await;
+        
+        if let Ok(rows) = result {
+            if rows.rows_affected() > 0 {
+                info!("Set {} users offline due to inactivity", rows.rows_affected());
+            }
+        }
     }
 }
 
@@ -315,7 +402,18 @@ async fn handle_connection(
                                     is_group,
                                 ).await {
                                     Ok(conversation) => {
-                                        WsMessage::ConversationCreated { conversation }
+                                        let full_conversation = messenger::get_user_conversations(&pool, &user.id)
+                                            .await
+                                            .ok()
+                                            .and_then(|items| items.into_iter().find(|c| c.id == conversation.id));
+
+                                        match full_conversation {
+                                            Some(conversation) => WsMessage::ConversationCreated { conversation },
+                                            None => WsMessage::Error {
+                                                code: "conversation_error".to_string(),
+                                                message: "Conversation created but failed to load view model".to_string(),
+                                            },
+                                        }
                                     },
                                     Err(e) => WsMessage::Error {
                                         code: "conversation_error".to_string(),
@@ -355,6 +453,8 @@ async fn handle_connection(
                                 let before_ts = before.and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
                                     .map(|dt| dt.with_timezone(&chrono::Utc));
 
+                                log::info!("GetMessages for user {} conversation {} limit {}", user.id, conversation_id, limit_val);
+
                                 match messenger::fetch_conversation_messages(
                                     &pool,
                                     &conversation_id,
@@ -363,11 +463,15 @@ async fn handle_connection(
                                 ).await {
                                     Ok(messages) => {
                                         let has_more = messages.len() as i32 >= limit_val;
+                                        log::info!("Loaded {} messages", messages.len());
                                         WsMessage::MessagesList { messages, has_more }
                                     },
-                                    Err(e) => WsMessage::Error {
-                                        code: "fetch_error".to_string(),
-                                        message: e.to_string(),
+                                    Err(e) => {
+                                        log::error!("Failed to load messages: {}", e);
+                                        WsMessage::Error {
+                                            code: "fetch_error".to_string(),
+                                            message: e.to_string(),
+                                        }
                                     },
                                 }
                             },
@@ -382,20 +486,45 @@ async fn handle_connection(
                         content,
                         message_type,
                         media_url,
-                        reply_to_id
+                        reply_to_id,
+                        file_data,
                     }) => {
                         match current_user {
                             Some(ref user) => {
+                                // Сначала создаём сообщение
+                                let final_message_type = message_type.or_else(|| {
+                                    file_data.as_ref().map(|f| f.file_type.clone())
+                                });
+                                
                                 match messenger::send_message_full(
                                     &pool,
                                     &user.id,
                                     &conversation_id,
                                     &content,
-                                    message_type,
+                                    final_message_type,
                                     media_url,
                                     reply_to_id,
                                 ).await {
                                     Ok(message) => {
+                                        // Если есть файл, сохраняем его и привязываем к сообщению
+                                        if let Some(file) = file_data {
+                                            let file_url = format!("data:{};base64,{}", file.mime_type, file.data_base64);
+                                            let _ = messenger::upload_message_file(
+                                                &pool,
+                                                &message.id.to_string(),
+                                                &user.id,
+                                                &file.file_name,
+                                                file.file_size,
+                                                &file.mime_type,
+                                                &file.file_type,
+                                                None,
+                                                Some(&file_url),
+                                                None,
+                                                None,
+                                                None,
+                                            ).await;
+                                        }
+
                                         let msg_json = serde_json::to_string(&WsMessage::MessageReceived {
                                             message: message.clone()
                                         }).unwrap_or_default();
@@ -408,6 +537,11 @@ async fn handle_connection(
                                             &msg_json,
                                             &user.id,
                                         ).await;
+
+                                        // Отправляем отправителю подтверждение + обновлённый список чатов
+                                        let conversations = messenger::get_user_conversations(&pool, &user.id).await.unwrap_or_default();
+                                        let conversations_json = serde_json::to_string(&WsMessage::ConversationsList { conversations }).unwrap_or_default();
+                                        let _ = tx.send(conversations_json);
 
                                         WsMessage::MessageSent { message }
                                     },
@@ -671,6 +805,108 @@ async fn handle_connection(
                             },
                         }
                     }
+                    
+                    // Новые обработчики настроек профиля
+                    Ok(WsMessage::UpdateProfileSettings { display_name, avatar_url, about, custom_user_id }) => {
+                        match current_user {
+                            Some(ref user) => {
+                                match messenger::update_profile_settings(
+                                    &pool,
+                                    &user.id,
+                                    display_name.as_deref(),
+                                    avatar_url.as_deref(),
+                                    about.as_deref(),
+                                    custom_user_id.as_deref(),
+                                ).await {
+                                    Ok(profile) => WsMessage::Profile { profile },
+                                    Err(e) => WsMessage::Error {
+                                        code: "update_error".to_string(),
+                                        message: e.to_string(),
+                                    },
+                                }
+                            },
+                            None => WsMessage::Error {
+                                code: "not_authorized".to_string(),
+                                message: "Требуется авторизация".to_string(),
+                            },
+                        }
+                    }
+                    
+                    // Контакты с онлайн-статусом
+                    Ok(WsMessage::GetContactsOnline) => {
+                        match current_user {
+                            Some(ref user) => {
+                                match messenger::get_contacts_with_status(&pool, &user.id).await {
+                                    Ok(contacts) => WsMessage::ContactsOnlineList { contacts },
+                                    Err(e) => WsMessage::Error {
+                                        code: "fetch_error".to_string(),
+                                        message: e.to_string(),
+                                    },
+                                }
+                            },
+                            None => WsMessage::Error {
+                                code: "not_authorized".to_string(),
+                                message: "Требуется авторизация".to_string(),
+                            },
+                        }
+                    }
+                    
+                    // Кастомное имя контакта
+                    Ok(WsMessage::SetCustomContactName { contact_user_id, custom_name }) => {
+                        match current_user {
+                            Some(ref user) => {
+                                match messenger::set_custom_contact_name(
+                                    &pool,
+                                    &user.id,
+                                    &contact_user_id,
+                                    custom_name.as_deref(),
+                                ).await {
+                                    Ok(()) => WsMessage::Pong, // Просто подтверждаем
+                                    Err(e) => WsMessage::Error {
+                                        code: "update_error".to_string(),
+                                        message: e.to_string(),
+                                    },
+                                }
+                            },
+                            None => WsMessage::Error {
+                                code: "not_authorized".to_string(),
+                                message: "Требуется авторизация".to_string(),
+                            },
+                        }
+                    }
+                    
+                    // Онлайн статус пользователей
+                    Ok(WsMessage::GetOnlineStatus { user_ids }) => {
+                        match current_user {
+                            Some(ref _user) => {
+                                match messenger::get_users_online_status(&pool, &user_ids).await {
+                                    Ok(statuses) => WsMessage::OnlineStatus { statuses },
+                                    Err(e) => WsMessage::Error {
+                                        code: "fetch_error".to_string(),
+                                        message: e.to_string(),
+                                    },
+                                }
+                            },
+                            None => WsMessage::Error {
+                                code: "not_authorized".to_string(),
+                                message: "Требуется авторизация".to_string(),
+                            },
+                        }
+                    }
+                    
+                    // Обновление активности (heartbeat)
+                    Ok(WsMessage::UpdateActivity) => {
+                        match current_user {
+                            Some(ref user) => {
+                                let _ = messenger::update_user_activity(&pool, &user.id).await;
+                                WsMessage::Pong
+                            },
+                            None => WsMessage::Error {
+                                code: "not_authorized".to_string(),
+                                message: "Требуется авторизация".to_string(),
+                            },
+                        }
+                    }
 
                     // Fallback
                     Ok(_) => WsMessage::Error {
@@ -716,11 +952,13 @@ async fn handle_connection(
             Ok(Message::Pong(_)) => {}
             Ok(Message::Close(frame)) => {
                 info!("ws closed: {peer:?} {frame:?}");
-                // Удаляем пользователя из подключений
+                // Удаляем пользователя из подключений и ставим оффлайн
                 if let Some(ref user) = current_user {
                     let mut conns = connections.write().await;
                     conns.remove(&user.id);
                     info!("User {} disconnected", user.username);
+                    // Обновляем статус на оффлайн
+                    let _ = messenger::set_user_online(&pool, &user.id, false).await;
                 }
                 break;
             }

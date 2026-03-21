@@ -12,6 +12,7 @@ pub struct BrowserSite {
     pub description: Option<String>,
     pub icon_url: Option<String>,
     pub category: String,
+    pub is_indexed: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>
 }
