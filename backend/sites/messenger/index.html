@@ -1434,6 +1434,12 @@
                     token = data.token;
                     sendWs({type:'GetProfile'});
                     break;
+                case 'AuthError':
+                    console.error('Messenger Auth Error:', data);
+                    localStorage.removeItem('zeroday.token');
+                    alert('Ошибка авторизации: ' + data.message + '\\n\\nОбновите страницу или войдите заново.');
+                    window.location.href = '/';
+                    break;
                 case 'Profile':
                     profile = data.profile;
                     if(data.profile.is_setup_complete) {
@@ -1445,6 +1451,13 @@
                 case 'ConversationsList':
                     conversations = normalizeConversations(data.conversations || []);
                     renderChatList();
+                    
+                    // Подсчитываем общее количество непрочитанных сообщений и отправляем в родительское окно
+                    const totalUnread = conversations.reduce((sum, c) => sum + (c.unread_count || 0), 0);
+                    if (window.sendToParent) {
+                        window.sendToParent('unread_count', { count: totalUnread });
+                    }
+                    
                     if (activeConversation) {
                         const stillExists = conversations.find(c => c.id === activeConversation.id);
                         if (stillExists) {
@@ -1494,7 +1507,34 @@
                     }
                     break;
                 case 'MessageReceived':
-                    if (data.message) handleMessageUpdate(data.message);
+                    if (data.message) {
+                        const msg = data.message;
+                        // Если чат открыт — добавляем сообщение
+                        if (activeConversation && msg.conversation_id === activeConversation.id) {
+                            handleMessageUpdate(msg);
+                            // Прокрутка вниз
+                            setTimeout(() => {
+                                const container = document.querySelector('.messages-container');
+                                if (container) container.scrollTop = container.scrollHeight;
+                            }, 50);
+                        }
+                        // Обновляем список чатов (чтобы показать новое сообщение в списке)
+                        sendWs({ type: 'GetConversations' });
+                        
+                        // Отправляем уведомление в родительское окно
+                        const isChatOpen = activeConversation && msg.conversation_id === activeConversation.id;
+                        if (window.sendToParent) {
+                            window.sendToParent('message_received', {
+                                message: msg,
+                                isChatOpen: isChatOpen
+                            });
+                        }
+                        
+                        // Показываем уведомление если чат не открыт
+                        if (!activeConversation || msg.conversation_id !== activeConversation.id) {
+                            showNotification('Новое сообщение', 'info');
+                        }
+                    }
                     break;
                 case 'FriendRequestsList':
                     friendRequests = data.requests || [];
@@ -2073,15 +2113,15 @@
                         var avatarInner = p.avatar_url
                             ? '<img src="'+escapeHtml(p.avatar_url)+'" style="width:100%;height:100%;object-fit:cover;border-radius:50%" alt="">'
                             : getInitials(p.display_name||'User');
-                        var midJs = JSON.stringify(p.messenger_id);
+                        var midEscaped = escapeHtml(String(p.messenger_id || ''));
                         var sending = friendRequestSendingMid === p.messenger_id;
                         var actionBtn = sending
                             ? '<span class="zg-pending-label">Отправка…</span>'
-                            : '<button type="button" class="zg-btn-ok" onclick="event.stopPropagation();sendFriendRequestFromResults('+midJs+')">Добавить</button>';
+                            : '<button type="button" class="zg-btn-ok" onclick="event.stopPropagation();sendFriendRequestFromResults(\''+midEscaped+'\')">Добавить</button>';
                         return '<div class="zg-friend-card">'+
                             '<div class="chat-avatar" style="width:44px;height:44px;font-size:15px">'+avatarInner+'</div>'+
                             '<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:14px">'+escapeHtml(p.display_name)+'</div>'+
-                            '<div style="font-size:12px;color:var(--zg-muted);margin-top:2px">@'+escapeHtml(p.messenger_id)+'</div></div>'+
+                            '<div style="font-size:12px;color:var(--zg-muted);margin-top:2px">@'+midEscaped+'</div></div>'+
                             actionBtn+
                             '</div>';
                     }).join('');
@@ -2626,12 +2666,30 @@
         };
 
         window.showNotification = function(message, type='info') {
+            // Send notification to parent window (ZeroBrowser)
+            if (window.parent && window.parent !== window) {
+                window.parent.postMessage({
+                    type: 'zeroday:notification',
+                    payload: { message, notificationType: type }
+                }, '*');
+            }
+            
             const notif = document.createElement('div');
             const bg = type === 'success' ? 'var(--gradient-success)' : type === 'error' ? 'linear-gradient(135deg,#e53935,#c62828)' : 'var(--gradient-primary)';
             notif.style.cssText = `position:fixed;top:20px;right:20px;padding:16px 24px;background:${bg};border-radius:12px;color:white;font-weight:600;box-shadow:var(--shadow-lg);z-index:10000;animation:slideUp 0.3s ease-out`;
             notif.textContent = message;
             document.body.appendChild(notif);
             setTimeout(() => notif.remove(), 3000);
+        };
+        
+        // Функция для отправки событий в родительское окно
+        window.sendToParent = function(eventType, data) {
+            if (window.parent && window.parent !== window) {
+                window.parent.postMessage({
+                    type: 'zeroday:' + eventType,
+                    payload: data
+                }, '*');
+            }
         };
 
         (function initMessengerChrome() {

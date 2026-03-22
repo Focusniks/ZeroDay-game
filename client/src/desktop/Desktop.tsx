@@ -10,7 +10,7 @@
  * 3. Упростить DashboardPage до простого контейнера
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   moduleRegistry,
   eventBus,
@@ -49,6 +49,30 @@ interface DesktopContentProps {
 function DesktopContent({ lang, wallpaper, children }: DesktopContentProps) {
   const { notifications, dismiss } = useNotifications();
   const { state: taskbarState, api: taskbarApi } = useTaskbarModule();
+  
+  // Badge state for messenger notifications
+  const [messengerBadgeCount, setMessengerBadgeCount] = useState(0);
+  
+  // Listen for messenger events
+  useEffect(() => {
+    const handleUnreadCount = (data: unknown) => {
+      const payload = data as { count: number } | undefined;
+      if (payload && typeof payload.count === 'number') {
+        setMessengerBadgeCount(payload.count);
+      }
+    };
+    
+    eventBus.on('messenger:unread_count', handleUnreadCount);
+    
+    return () => {
+      eventBus.off('messenger:unread_count', handleUnreadCount);
+    };
+  }, []);
+  
+  // Find browser window token for badge
+  const browserWindowToken = taskbarState.taskbarWindows.find(
+    (w) => w.windowType === 'browser'
+  )?.token;
 
   // Clock update effect
   useEffect(() => {
@@ -145,6 +169,7 @@ function DesktopContent({ lang, wallpaper, children }: DesktopContentProps) {
         onWindowContextMenu={handleWindowContextMenu}
         onNetworkClick={handleNetworkClick}
         onLaunchApp={handleLaunchApp}
+        badgeCounts={browserWindowToken ? { [browserWindowToken]: messengerBadgeCount } : {}}
       />
 
       {/* Notification container */}

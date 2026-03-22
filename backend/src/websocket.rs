@@ -168,6 +168,9 @@ pub enum WsMessage {
     ConversationsList {
         conversations: Vec<messenger::ConversationWithLastMessage>,
     },
+    ConversationUpdate {
+        conversation: messenger::ConversationWithLastMessage,
+    },
     MessagesList {
         messages: Vec<messenger::Message>,
         has_more: bool,
@@ -592,18 +595,41 @@ async fn handle_connection(
                                             message: message.clone()
                                         }).unwrap_or_default();
 
-                                        // Отправляем сообщение всем участникам КРОМЕ отправителя
-                                        messenger::broadcast_to_conversation(
-                                            &connections,
-                                            &conversation_id,
-                                            &pool,
-                                            &msg_json,
-                                            &user.id,
-                                            false,
-                                        ).await;
+                                        // Получаем обновлённую конверсацию с правильным unread_count для получателей
+                                        let updated_conversations = messenger::get_user_conversations(&pool, &user.id).await.unwrap_or_default();
+                                        let conv_for_recipients = updated_conversations.iter().find(|c| c.id.to_string() == conversation_id).cloned();
+                                        
+                                        // Отправляем сообщение и обновление конверсации всем участникам КРОМЕ отправителя
+                                        if let Some(conv) = conv_for_recipients {
+                                            let update_json = serde_json::to_string(&WsMessage::ConversationUpdate {
+                                                conversation: conv
+                                            }).unwrap_or_default();
+                                            
+                                            // Отправляем оба сообщения (MessageReceived + ConversationUpdate)
+                                            messenger::broadcast_to_conversation_with_extra(
+                                                &connections,
+                                                &conversation_id,
+                                                &pool,
+                                                &msg_json,
+                                                &update_json,
+                                                &user.id,
+                                            ).await;
+                                        } else {
+                                            messenger::broadcast_to_conversation(
+                                                &connections,
+                                                &conversation_id,
+                                                &pool,
+                                                &msg_json,
+                                                &user.id,
+                                                false,
+                                            ).await;
+                                        }
+
+                                        // Отправляем сообщение также отправителю (чтобы видел у себя в чате)
+                                        let _ = tx.send(msg_json.clone());
 
                                         // Отправляем отправителю подтверждение + обновлённый список чатов
-                                        let conversations = messenger::get_user_conversations(&pool, &user.id).await.unwrap_or_default();
+                                        let conversations = updated_conversations;
                                         let conversations_json = serde_json::to_string(&WsMessage::ConversationsList { conversations }).unwrap_or_default();
                                         let _ = tx.send(conversations_json);
 

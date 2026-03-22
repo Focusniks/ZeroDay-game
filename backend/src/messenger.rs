@@ -1042,7 +1042,7 @@ pub async fn send_message_full(
         .map_err(|e| sqlx::Error::Protocol(format!("Invalid sender_id: {}", e)))?;
     let conv_uuid = Uuid::parse_str(conversation_id)
         .map_err(|e| sqlx::Error::Protocol(format!("Invalid conversation_id: {}", e)))?;
-    
+
     // Конвертируем reply_to_id в Uuid если есть
     let reply_uuid = reply_to_id
         .filter(|s| !s.is_empty())
@@ -1054,7 +1054,12 @@ pub async fn send_message_full(
         r#"
         INSERT INTO messages (conversation_id, sender_id, content, message_type, media_url, reply_to_id)
         VALUES ($1, $2, $3, $4, $5, $6)
-        RETURNING *
+        RETURNING
+            m.id, m.conversation_id, m.sender_id, m.content, m.message_type,
+            m.created_at, m.updated_at,
+            (SELECT mp.messenger_id FROM messenger_profiles mp WHERE mp.user_id = m.sender_id) as sender_username,
+            false as is_read,
+            false as edited
         "#
     )
     .bind(&conv_uuid)
@@ -1200,6 +1205,50 @@ pub async fn broadcast_to_conversation(
             if let Some(ref json) = conversations_json {
                 let _ = tx.send(json.clone());
             }
+        }
+    }
+}
+
+/// Транслировать два JSON-сообщения всем участникам конверсации, кроме `exclude_user_id`.
+/// Используется для отправки MessageReceived + ConversationUpdate одновременно.
+pub async fn broadcast_to_conversation_with_extra(
+    connections: &crate::websocket::SharedConnections,
+    conversation_id: &str,
+    pool: &PgPool,
+    message_json: &str,
+    extra_json: &str,
+    exclude_user_id: &str,
+) {
+    let Some(conv_uuid) = Uuid::parse_str(conversation_id).ok() else {
+        return;
+    };
+
+    let member_ids: Vec<String> = sqlx::query_scalar(
+        "SELECT user_id::text FROM conversation_members WHERE conversation_id = $1",
+    )
+    .bind(&conv_uuid)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    let targets: Vec<(String, Vec<tokio::sync::mpsc::UnboundedSender<String>>)> = {
+        let conns = connections.read().await;
+        member_ids
+            .into_iter()
+            .filter(|m| m != exclude_user_id)
+            .filter_map(|m| {
+                conns.get(&m).map(|entries| {
+                    let txs: Vec<_> = entries.iter().map(|(_, tx)| tx.clone()).collect();
+                    (m, txs)
+                })
+            })
+            .collect()
+    };
+
+    for (_member_id, txs) in targets {
+        for tx in txs {
+            let _ = tx.send(message_json.to_string());
+            let _ = tx.send(extra_json.to_string());
         }
     }
 }

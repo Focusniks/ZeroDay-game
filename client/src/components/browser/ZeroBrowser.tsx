@@ -5,6 +5,8 @@ import { useWindowFrame } from "../../desktop/modules/WindowFrameModule";
 import { playWindowClose, playWindowMaximize, playWindowMinimize, playWindowRestore } from "../../lib/osSounds";
 import { useAuth } from "../../hooks/useAuth";
 import { themeIconUrl } from "../../lib/themeIcons";
+import { eventBus, DesktopEvents } from "../../desktop/modules/EventBus";
+import { notificationManager } from "../../desktop/modules/NotificationModule/NotificationModule";
 
 const BROWSER_API_ORIGIN = "http://127.0.0.1:8000";
 
@@ -546,6 +548,67 @@ export function ZeroBrowser({
   };
 
   const activeTab = useMemo(() => tabs.find((t) => t.id === activeTabId), [tabs, activeTabId]);
+
+  // Слушаем сообщения от iframe (messenger)
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      // Проверяем, что сообщение от нашего источника
+      if (!event.data || typeof event.data !== 'object') return;
+      
+      const { type, payload } = event.data;
+      if (!type || !type.startsWith('zeroday:')) return;
+      
+      const eventType = type.replace('zeroday:', '');
+      
+      switch (eventType) {
+        case 'message_received': {
+          // Новое сообщение в мессенджере
+          const { message, isChatOpen } = payload || {};
+          
+          // Показываем уведомление на десктопе
+          if (!isChatOpen && message) {
+            const senderName = message.sender_username || 'Unknown';
+            notificationManager.show({
+              title: lang === 'ru' ? 'Новое сообщение' : 'New message',
+              message: `${senderName}: ${message.content?.substring(0, 50)}${message.content?.length > 50 ? '...' : ''}`,
+              type: 'info',
+              duration: 5000
+            });
+            
+            // Отправляем событие для обновления badge
+            eventBus.emit('messenger:new_message', { message });
+          }
+          break;
+        }
+        
+        case 'unread_count': {
+          // Обновление количества непрочитанных сообщений
+          const { count } = payload || {};
+          if (typeof count === 'number') {
+            eventBus.emit('messenger:unread_count', { count });
+          }
+          break;
+        }
+        
+        case 'notification': {
+          // Пробрасываем уведомление от мессенджера
+          const { message, notificationType } = payload || {};
+          if (message) {
+            notificationManager.show({
+              title: 'ZeroDay Messenger',
+              message,
+              type: notificationType || 'info',
+              duration: 4000
+            });
+          }
+          break;
+        }
+      }
+    };
+    
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [lang]);
 
   useEffect(() => {
     if (!isOnline) {

@@ -130,9 +130,10 @@ interface TaskbarButtonProps {
   isActive: boolean;
   onClick: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
+  badgeCount?: number;
 }
 
-function TaskbarButton({ entry, isActive, onClick, onContextMenu }: TaskbarButtonProps) {
+function TaskbarButton({ entry, isActive, onClick, onContextMenu, badgeCount }: TaskbarButtonProps) {
   return (
     <button
       className={`taskbar-app taskbar-app-chip ${
@@ -142,7 +143,14 @@ function TaskbarButton({ entry, isActive, onClick, onContextMenu }: TaskbarButto
       onContextMenu={onContextMenu}
       title={entry.label}
     >
-      <span className="taskbar-app-chip-icon">{entry.icon}</span>
+      <span className="taskbar-app-chip-icon">
+        {entry.icon}
+        {badgeCount !== undefined && badgeCount > 0 && (
+          <span className="taskbar-badge">
+            {badgeCount > 99 ? '99+' : badgeCount}
+          </span>
+        )}
+      </span>
       <span className="taskbar-app-chip-label">{entry.label}</span>
     </button>
   );
@@ -230,6 +238,7 @@ export interface TaskbarProps {
   onWindowContextMenu: (entry: TaskbarWindowEntry, x: number, y: number) => void;
   onNetworkClick: () => void;
   onLaunchApp: (key: string) => void;
+  badgeCounts?: Record<string, number>;
 }
 
 export function Taskbar({
@@ -244,6 +253,7 @@ export function Taskbar({
   onWindowContextMenu,
   onNetworkClick,
   onLaunchApp,
+  badgeCounts = {},
 }: TaskbarProps) {
   const [startMenuOpen, setStartMenuOpen] = useState(false);
   const startRef = useRef<HTMLDivElement>(null);
@@ -318,6 +328,7 @@ export function Taskbar({
                 e.preventDefault();
                 onWindowContextMenu(app, e.clientX, e.clientY);
               }}
+              badgeCount={badgeCounts[app.token]}
             />
           ))}
         </div>
