@@ -10,12 +10,15 @@ import { eventBus, DesktopEvents } from "../../desktop/modules/EventBus";
 import { notificationManager } from "../../desktop/modules/NotificationModule/NotificationModule";
 
 // Преобразование ws:// URL в http:// URL
-// Меняет порт с 8080 (WebSocket) на 8000 (HTTP)
 function wsToHttpUrl(wsUrl: string): string {
-  return wsUrl
-    .replace(/^ws:\/\//, 'http://')
-    .replace(/\/ws$/, '')
-    .replace(/:8080(\/?)/, ':8000$1');
+  // Меняем ws:// на http://
+  let result = wsUrl.replace(/^ws:\/\//, 'http://');
+  // Меняем порт 8080 на 8000 (WebSocket порт -> HTTP порт)
+  // Но только если явно указан порт 8080
+  if (result.includes(':8080')) {
+    result = result.replace(':8080', ':8000');
+  }
+  return result;
 }
 
 // Значения по умолчанию
@@ -2062,7 +2065,6 @@ export function ZeroBrowser({
         const params = new URLSearchParams();
         if (token) params.set('token', token);
         params.set('ws_url', browserConfig.wsUrl);
-        params.set('http_url', browserConfig.httpOrigin);
         const iframeSrc = `${browserConfig.httpOrigin}/sites/${encodeURIComponent(slug)}?${params.toString()}`;
         return (
           <div className="h-full">
@@ -2101,7 +2103,6 @@ export function ZeroBrowser({
         const params = new URLSearchParams();
         if (token) params.set('token', token);
         params.set('ws_url', browserConfig.wsUrl);
-        params.set('http_url', browserConfig.httpOrigin);
         const iframeSrc = `${browserConfig.httpOrigin}/sites/${encodeURIComponent(slug)}?${params.toString()}`;
         return (
           <div className="h-full">

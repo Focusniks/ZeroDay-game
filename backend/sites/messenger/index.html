@@ -1591,6 +1591,7 @@
                         }
                     }
                     else if (data.code === 'send_error' && window.handleSendError) {
+                        console.log('Send error received:', data);
                         window.handleSendError(data.message);
                     }
                     else if (data.code === 'request_error') {
@@ -2480,6 +2481,7 @@
                     is_read: false
                 });
                 renderMessages();
+                console.log('Sending message:', {conversation_id: activeConversation.id, content: txt});
                 sendWs({type:'SendMessage',conversation_id:activeConversation.id,content:txt,reply_to_id:null});
             }
             

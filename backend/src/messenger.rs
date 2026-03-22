@@ -1055,9 +1055,9 @@ pub async fn send_message_full(
         INSERT INTO messages (conversation_id, sender_id, content, message_type, media_url, reply_to_id)
         VALUES ($1, $2, $3, $4, $5, $6)
         RETURNING
-            m.id, m.conversation_id, m.sender_id, m.content, m.message_type,
-            m.created_at, m.updated_at,
-            (SELECT mp.messenger_id FROM messenger_profiles mp WHERE mp.user_id = m.sender_id) as sender_username,
+            id, conversation_id, sender_id, content, message_type,
+            created_at, updated_at,
+            (SELECT mp.messenger_id FROM messenger_profiles mp WHERE mp.user_id = sender_id) as sender_username,
             false as is_read,
             false as edited
         "#
