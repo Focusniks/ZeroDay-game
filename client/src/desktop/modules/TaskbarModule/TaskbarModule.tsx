@@ -1,4 +1,4 @@
-/**
+о/**
  * TaskbarModule — модуль панели задач
  * 
  * Включает:
@@ -147,7 +147,7 @@ function TaskbarButton({ entry, isActive, onClick, onContextMenu, badgeCount }: 
         {entry.icon}
         {badgeCount !== undefined && badgeCount > 0 && (
           <span className="taskbar-badge">
-            {badgeCount > 99 ? '99+' : badgeCount}
+            {badgeCount > 999 ? '999+' : badgeCount}
           </span>
         )}
       </span>

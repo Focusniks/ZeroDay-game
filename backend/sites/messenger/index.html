@@ -54,6 +54,7 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
+            cursor: default;
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: var(--zg-bg-deep);
             color: var(--zg-text);
@@ -499,6 +500,72 @@
             text-align: center;
             flex-shrink: 0;
         }
+        
+        /* Add menu dropdown */
+        .zg-add-menu {
+            position: absolute;
+            top: 50px;
+            right: 10px;
+            background: var(--zg-bg);
+            border: 1px solid var(--zg-border);
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            z-index: 1000;
+            min-width: 180px;
+            display: none;
+        }
+        .zg-add-menu.show { display: block; }
+        .zg-add-menu-item {
+            padding: 12px 16px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--zg-text);
+            transition: background 0.2s;
+        }
+        .zg-add-menu-item:hover {
+            background: var(--zg-hover);
+        }
+        .zg-add-menu-item:first-child { border-radius: 8px 8px 0 0; }
+        .zg-add-menu-item:last-child { border-radius: 0 0 8px 8px; }
+        .zg-add-menu-icon {
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        /* Context menu */
+        .zg-context-menu {
+            position: fixed;
+            background: var(--zg-bg);
+            border: 1px solid var(--zg-border);
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            z-index: 1000;
+            min-width: 160px;
+            display: none;
+        }
+        .zg-context-menu.show { display: block; }
+        .zg-context-menu-item {
+            padding: 10px 14px;
+            cursor: pointer;
+            color: var(--zg-text);
+            transition: background 0.2s;
+            font-size: 14px;
+        }
+        .zg-context-menu-item:hover {
+            background: var(--zg-hover);
+        }
+        .zg-context-menu-item:first-child { border-radius: 8px 8px 0 0; }
+        .zg-context-menu-item:last-child { border-radius: 0 0 8px 8px; }
+        .zg-context-menu-sep {
+            height: 1px;
+            background: var(--zg-border);
+            margin: 4px 0;
+        }
         .unread-badge.hidden { display: none !important; }
 
         /* Main chat column */
@@ -849,8 +916,8 @@
 
         .emoji-picker {
             position: absolute;
-            bottom: 72px;
-            left: 24px;
+            bottom: 60px;
+            right: 80px;
             background: var(--zg-surface);
             border: 1px solid var(--zg-border);
             border-radius: var(--zg-radius-md);
@@ -948,7 +1015,33 @@
             padding: 2px 6px;
             opacity: 0.85;
         }
+        .reaction-add-btn {
+            width: 24px; height: 24px;
+            border: none;
+            background: rgba(255,255,255,0.06);
+            cursor: pointer;
+            font-size: 14px;
+            border-radius: 4px;
+            opacity: 0.5;
+            transition: opacity 0.2s, background 0.2s;
+        }
+        .reaction-add-btn:hover { opacity: 1; background: rgba(255,255,255,0.12); }
         .reaction-quick:hover { opacity: 1; background: var(--zg-blue-dim); }
+        .reaction-picker {
+            position: absolute;
+            background: var(--zg-surface);
+            border: 1px solid var(--zg-border);
+            border-radius: var(--zg-radius-md);
+            padding: 6px;
+            display: flex;
+            gap: 4px;
+            z-index: 100;
+            box-shadow: var(--zg-shadow-soft);
+        }
+        .reaction-picker .emoji-btn {
+            width: 28px; height: 28px;
+            font-size: 16px;
+        }
 
         /* Contacts sections */
         .zg-section-title {
@@ -1143,6 +1236,7 @@
 </head>
 <body>
     <div id="app"></div>
+    <div id="zg-context-menu" class="zg-context-menu"></div>
     <input id="avatar-upload-input" type="file" accept="image/*" style="display:none" onchange="handleAvatarUpload(event)">
     <input id="file-upload-input" type="file" style="display:none" onchange="handleFileSelect(event)">
     <div id="zg-ctx-menu" class="zg-ctx-menu" role="menu" aria-hidden="true">
@@ -1211,6 +1305,7 @@
         let filteredConversations = [];
         let pendingFile = null;
         let showEmojiPicker = false;
+        let openReactionPickerFor = null; // message_id for open reaction picker
         let wsConnected = false;
         let heartbeatIntervalId = null;
         let reconnectAttempts = 0;
@@ -1277,10 +1372,10 @@
             const now = new Date();
             const diff = now.getTime() - date.getTime();
             const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-            if (days === 0) return date.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
-            if (days === 1) return 'Вчера';
-            if (days < 7) return date.toLocaleDateString('ru-RU',{weekday:'long'});
-            return date.toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit'});
+            // Всегда показываем дату в формате 00:00 01.01.2000
+            const time = date.toLocaleTimeString('ru-RU', {hour:'2-digit',minute:'2-digit'});
+            const dateStr = date.toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'});
+            return time + ' ' + dateStr;
         }
 
         function getInitials(name) {
@@ -1510,6 +1605,22 @@
                     if(window.handleConversationCreated) {
                         window.handleConversationCreated(data.conversation);
                     }
+                    break;
+                case 'ConversationDeleted':
+                    // Удаляем чат из локального списка
+                    conversations = conversations.filter(c => c.id !== data.conversation_id);
+                    if (activeConversation?.id === data.conversation_id) {
+                        activeConversation = null;
+                    }
+                    renderChatList();
+                    showNotification('Чат удалён', 'success');
+                    break;
+                case 'ContactRemoved':
+                    // Удаляем контакт из списка
+                    contacts = contacts.filter(c => c.contact_user_id !== data.contact_user_id);
+                    sendWs({ type: 'GetContacts' });
+                    renderChatList();
+                    showNotification('Контакт удалён', 'success');
                     break;
                 case 'MessagesList':
                     const incoming = (data.messages||[]).reverse();
@@ -2007,6 +2118,227 @@
             renderMain();
         };
 
+        // Переменные для создания группы
+        let newGroupName = '';
+        let newGroupAvatar = '';
+        let newGroupMembers = [];
+        let groupMembersSearch = '';
+        let groupContacts = [];
+        
+        function renderCreateGroupScreen() {
+            const avatarHtml = newGroupAvatar 
+                ? `<img src="${escapeHtml(newGroupAvatar)}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`
+                : '👥';
+            
+            document.getElementById('app').innerHTML = `
+                <div class="zg-app messenger-container">
+                    <aside class="zg-rail">
+                        <button type="button" class="zg-rail-btn" onclick="goBackToChats()" title="Назад">←</button>
+                    </aside>
+                    <div class="zg-list-panel" style="flex:1;">
+                        <div class="zg-list-panel__top">
+                            <h1 class="zg-list-panel__title">Создание группы</h1>
+                        </div>
+                        <div style="padding:20px;">
+                            <div style="display:flex;flex-direction:column;align-items:center;gap:16px;padding:20px;">
+                                <div class="chat-avatar" style="width:80px;height:80px;font-size:36px;cursor:pointer;" onclick="document.getElementById('group-avatar-input').click()">
+                                    ${avatarHtml}
+                                </div>
+                                <input type="file" id="group-avatar-input" accept="image/*" style="display:none" onchange="handleGroupAvatarUpload(event)">
+                                <input type="text" id="group-name-input" placeholder="Название группы" value="${escapeHtml(newGroupName)}" 
+                                    style="width:100%;max-width:300px;padding:12px;border-radius:8px;border:1px solid var(--zg-border);background:var(--zg-bg);color:var(--zg-text);text-align:center;font-size:16px;"
+                                    oninput="newGroupName = this.value;renderCreateGroupScreen();">
+                            </div>
+                            
+                            <div style="margin-top:20px;">
+                                <div class="zg-search-wrap" style="margin-bottom:12px;">
+                                    <span class="search-icon">🔍</span>
+                                    <input type="search" class="search-input" placeholder="Поиск контактов" value="${escapeHtml(groupMembersSearch)}" 
+                                        oninput="groupMembersSearch = this.value;renderCreateGroupScreen();">
+                                </div>
+                                
+                                <div style="max-height:300px;overflow-y:auto;">
+                                    ${renderGroupContacts()}
+                                </div>
+                            </div>
+                            
+                            ${newGroupMembers.length > 0 ? `
+                            <div style="margin-top:20px;padding:12px;background:var(--zg-bg-secondary);border-radius:8px;">
+                                <div style="font-size:12px;color:var(--zg-muted);margin-bottom:8px;">Выбрано участников: ${newGroupMembers.length}</div>
+                                <div style="display:flex;flex-wrap:wrap;gap:8px;">
+                                    ${newGroupMembers.map(m => `
+                                        <span style="background:var(--zg-blue);color:#fff;padding:4px 8px;border-radius:12px;font-size:12px;display:flex;align-items:center;gap:4px;">
+                                            ${escapeHtml(m.custom_name || m.contact_display_name || m.messenger_id)}
+                                            <span style="cursor:pointer;" onclick="removeGroupMember('${m.contact_messenger_id}')">×</span>
+                                        </span>
+                                    `).join('')}
+                                </div>
+                            </div>
+                            ` : ''}
+                            
+                            <div style="margin-top:20px;display:flex;justify-content:center;">
+                                <button type="button" onclick="createGroup()" 
+                                    style="padding:12px 32px;background:var(--zg-blue);color:#fff;border:none;border-radius:8px;font-size:16px;cursor:pointer;opacity:${newGroupName && newGroupMembers.length > 0 ? '1' : '0.5'}"
+                                    ${!newGroupName || newGroupMembers.length < 1 ? 'disabled' : ''}>
+                                    Создать группу
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        function renderGroupContacts() {
+            const searchLower = groupMembersSearch.toLowerCase();
+            const filtered = contacts.filter(c => {
+                const name = (c.custom_name || c.contact_display_name || c.contact_messenger_id || '').toLowerCase();
+                return name.includes(searchLower) && !newGroupMembers.some(m => m.contact_messenger_id === c.contact_messenger_id);
+            });
+            
+            if (filtered.length === 0) {
+                return '<div style="padding:20px;text-align:center;color:var(--zg-muted);">Нет контактов</div>';
+            }
+            
+            return filtered.map(c => `
+                <div class="chat-item" onclick="addGroupMember('${c.contact_messenger_id}', '${escapeHtml(c.custom_name || c.contact_display_name || c.contact_messenger_id)}')" style="cursor:pointer;">
+                    <div class="chat-avatar-wrap">
+                        <div class="chat-avatar">${c.avatar_url ? '<img src="'+escapeHtml(c.avatar_url)+'" alt="">' : getInitials(c.custom_name || c.contact_display_name || c.contact_messenger_id)}</div>
+                    </div>
+                    <div class="chat-info">
+                        <div class="chat-name">${escapeHtml(c.custom_name || c.contact_display_name)} <span style="color:var(--zg-muted);">@${escapeHtml(c.contact_messenger_id)}</span></div>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        window.addGroupMember = function(messengerId, name) {
+            if (!newGroupMembers.some(m => m.contact_messenger_id === messengerId)) {
+                newGroupMembers.push({ contact_messenger_id: messengerId, custom_name: name, contact_display_name: name });
+                renderCreateGroupScreen();
+            }
+        };
+        
+        window.removeGroupMember = function(messengerId) {
+            newGroupMembers = newGroupMembers.filter(m => m.contact_messenger_id !== messengerId);
+            renderCreateGroupScreen();
+        };
+        
+        window.handleGroupAvatarUpload = function(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    newGroupAvatar = e.target.result;
+                    renderCreateGroupScreen();
+                };
+                reader.readAsDataURL(file);
+            }
+        };
+        
+        window.createGroup = function() {
+            if (!newGroupName || newGroupMembers.length < 1) return;
+            // Используем CreateConversation
+            sendWs({
+                type: 'CreateConversation',
+                name: newGroupName,
+                user_ids: newGroupMembers.map(m => m.contact_messenger_id),
+                is_group: true
+            });
+            // Сброс переменных
+            newGroupName = '';
+            newGroupAvatar = '';
+            newGroupMembers = [];
+            groupMembersSearch = '';
+            appScreen = 'main';
+            renderMain();
+            showNotification('Группа создана', 'success');
+        };
+        
+        window.goBackToChats = function() {
+            appScreen = 'main';
+            renderMain();
+        };
+        
+        // Контекстное меню чата
+        let contextMenuConversationId = null;
+        
+        window.showChatContextMenu = function(e, conversationId) {
+            e.preventDefault();
+            contextMenuConversationId = conversationId;
+            const conv = conversations.find(c => c.id === conversationId);
+            if (!conv) return;
+            
+            const menu = document.getElementById('zg-context-menu');
+            const isGroup = conv.is_group;
+            const hasOtherUser = conv.other_user && !isGroup;
+            
+            menu.innerHTML = `
+                ${hasOtherUser ? `<div class="zg-context-menu-item" onclick="viewContactProfile('${conversationId}')">👤 Профиль</div>` : ''}
+                ${hasOtherUser ? `<div class="zg-context-menu-item" onclick="renameContact('${conversationId}')">✏️ Переименовать</div>` : ''}
+                ${hasOtherUser ? `<div class="zg-context-menu-item" onclick="removeContact('${conv.other_user.id}')">❌ Удалить контакт</div>` : ''}
+                <div class="zg-context-menu-item" onclick="deleteConversation('${conversationId}')">🗑️ Удалить чат</div>
+            `;
+            
+            menu.style.left = e.pageX + 'px';
+            menu.style.top = e.pageY + 'px';
+            menu.classList.add('show');
+            
+            // Закрыть при клике вне
+            setTimeout(() => {
+                document.addEventListener('click', closeChatContextMenu);
+            }, 0);
+        };
+        
+        window.closeChatContextMenu = function() {
+            const menu = document.getElementById('zg-context-menu');
+            menu.classList.remove('show');
+            document.removeEventListener('click', closeChatContextMenu);
+        };
+        
+        window.viewContactProfile = function(conversationId) {
+            closeChatContextMenu();
+            const conv = conversations.find(c => c.id === conversationId);
+            if (conv && conv.other_user) {
+                showNotification('Профиль: ' + (conv.other_user.custom_name || conv.other_user.username), 'info');
+            }
+        };
+        
+        window.renameContact = function(conversationId) {
+            closeChatContextMenu();
+            const conv = conversations.find(c => c.id === conversationId);
+            if (!conv || !conv.other_user) return;
+            
+            const newName = prompt('Введите новое имя:', conv.other_user.custom_name || '');
+            if (newName !== null) {
+                sendWs({ type: 'SetCustomContactName', contact_user_id: conv.other_user.id, custom_name: newName || null });
+                showNotification('Имя сохранено', 'success');
+            }
+        };
+        
+        window.deleteConversation = function(conversationId) {
+            closeChatContextMenu();
+            if (confirm('Удалить этот чат? Это действие нельзя отменить.')) {
+                sendWs({ type: 'DeleteConversation', conversation_id: conversationId });
+                if (activeConversation?.id === conversationId) {
+                    activeConversation = null;
+                }
+                conversations = conversations.filter(c => c.id !== conversationId);
+                renderChatList();
+                showNotification('Чат удалён', 'success');
+            }
+        };
+        
+        window.removeContact = function(contactUserId) {
+            closeChatContextMenu();
+            if (confirm('Удалить этого контакта? Вы больше не сможете отправлять ему сообщения.')) {
+                sendWs({ type: 'RemoveContact', contact_user_id: contactUserId });
+                contacts = contacts.filter(c => c.contact_user_id !== contactUserId);
+                renderChatList();
+                showNotification('Контакт удалён', 'success');
+            }
+        };
+
         function renderMain() {
             const avatarHtml = getSelfAvatarUrl() 
                 ? `<img src="${escapeHtml(getSelfAvatarUrl())}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`
@@ -2035,8 +2367,18 @@
                         <div class="zg-list-panel__top">
                             <div class="zg-list-panel__title-row">
                                 <h1 class="zg-list-panel__title">${activeTab==='chats' ? 'Чаты' : 'Контакты'}</h1>
-                                <div class="zg-list-panel__tools">
-                                    <button type="button" class="zg-icon-tool" onclick="openAddContactFlow()" title="Найти и добавить контакт">＋</button>
+                                <div class="zg-list-panel__tools" style="position: relative;">
+                                    <button type="button" class="zg-icon-tool" onclick="showAddMenu()" title="Создать чат">＋</button>
+                                    <div id="zg-add-menu" class="zg-add-menu">
+                                        <div class="zg-add-menu-item" onclick="openCreateGroupFlow()">
+                                            <span class="zg-add-menu-icon">👥</span>
+                                            <span>Создать группу</span>
+                                        </div>
+                                        <div class="zg-add-menu-item" onclick="openAddContactFlow()">
+                                            <span class="zg-add-menu-icon">👤</span>
+                                            <span>Добавить контакт</span>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                             ${activeTab==='chats' ? `
@@ -2093,7 +2435,7 @@
                                 </div>
                                 ${showEmojiPicker ? `
                                     <div class="emoji-picker">
-                                        ${['😀','😂','😍','🥰','😎','🤔','😢','😡','👍','👎','❤️','🔥','🎉','👋','🙏','💪'].map(e => `<button class="emoji-btn" onclick="insertEmoji('${e}')">${e}</button>`).join('')}
+                                        ${['😀','😃','😄','😁','😅','😂','🤣','😊','😇','🙂','😉','😍','🥰','😘','😋','😜','🤔','🤐','😐','😶','🙄','😬','🤥','😌','😔','😪','😴','😷','🤒','🤕','🤢','😵','🤠','😎','🤓','🧐','😕','😟','🙁','☹️','😮','😯','😲','🥺','😢','😭','😱','😡','😠','🤬','👍','👎','👊','✊','🤛','🤜','🤝','👏','🙌','👐','🙏','✍️','💪','👆','👇','👈','👉','👋','🤙','❤️','🧡','💛','💚','💙','💜','🖤','🤍','💔','❣️','💕','💞','💓','💗','💖','💘','💝','🔥','⭐','🌟','💫','🎉','🎊','🏆','🥇','🎯','🎮','🎲','♠️','♣️','♥️','♦️'].map(e => `<button class="emoji-btn" onclick="insertEmoji('${e}')">${e}</button>`).join('')}
                                     </div>
                                 ` : ''}
                             </div>
@@ -2117,8 +2459,13 @@
             
             if(activeTab==='chats') {
                 filteredConversations = conversations.filter(c=>{
-                    const n = String(getConversationTitle(c) || '');
-                    return n.toLowerCase().includes(searchQuery.toLowerCase());
+                    const n = String(getConversationTitle(c) || '').toLowerCase();
+                    const q = searchQuery.toLowerCase();
+                    // Ищем по названию чата, кастомному имени, или username
+                    return n.includes(q) || 
+                           (c.other_user?.custom_name || '').toLowerCase().includes(q) ||
+                           (c.other_user?.username || '').toLowerCase().includes(q) ||
+                           (c.name || '').toLowerCase().includes(q);
                 });
                 
                 if(filteredConversations.length===0) {
@@ -2135,9 +2482,9 @@
                     const unread = c.unread_count || 0;
                     
                     // Debug: always show badge for testing
-                    const badgeHtml = unread > 0 ? '<span class="unread-badge">'+(unread > 9 ? '9+' : unread)+'</span>' : '';
+                    const badgeHtml = unread > 0 ? '<span class="unread-badge">'+(unread > 99 ? '99+' : unread)+'</span>' : '';
                     
-                    return `<div class="chat-item ${active?'active':''}" onclick="selectChat('${c.id}')">
+                    return `<div class="chat-item ${active?'active':''}" onclick="selectChat('${c.id}')" oncontextmenu="showChatContextMenu(event, '${c.id}')">
                         <div class="chat-avatar-wrap ${onlineClass}"><div class="chat-avatar">${avatar?'<img src="'+escapeHtml(avatar)+'" alt="">':getInitials(name)}</div></div>
                         <div class="chat-info">
                             <div class="chat-name-row">
@@ -2321,10 +2668,17 @@
                         `<span class="reaction-chip" data-mid="${mid}" data-emoji="${em.replace(/"/g, '&quot;')}" onclick="toggleReactionFromEl(this)">${escapeHtml(em)} ${cnt}</span>`
                       ).join('') + '</div>'
                     : '';
-                const quickRx = !m.pending ? ['👍','❤️','🔥'].map(em =>
-                    `<button type="button" class="reaction-quick" data-mid="${mid}" data-emoji="${em}" onclick="toggleReactionFromEl(this)" title="Реакция">${em}</button>`
-                ).join('') : '';
+                const allReactions = ['👍','❤️','🔥','😊','😂','😮','😢','😡','👎','🎉','🙏','😍','🤔','😎','🥳','🤩','😱','💯','✨','💪'];
+                const quickRx = !m.pending ? 
+                    ['👍','❤️','🔥'].map(em =>
+                        `<button type="button" class="reaction-quick" data-mid="${mid}" data-emoji="${em}" onclick="toggleReactionFromEl(this)" title="Реакция">${em}</button>`
+                    ).join('') +
+                    `<button type="button" class="reaction-add-btn" data-mid="${mid}" onclick="toggleReactionPicker(this)" title="Добавить реакцию">😀+</button>`
+                : '';
 
+                const reactionPicker = (openReactionPickerFor === mid && !m.pending) ? 
+                    `<div class="reaction-picker">${allReactions.map(em => `<button class="emoji-btn" data-mid="${mid}" data-emoji="${em}" onclick="toggleReactionFromEl(this, true)">${em}</button>`).join('')}</div>` 
+                    : '';
                 return `<div class="message ${own?'own':''} ${m.pending?'message-pending':''}" data-message-id="${escapeHtml(mid)}">
                     ${!own?'<div class="message-avatar">'+avatarContent+'</div>':''}
                     <div class="message-bubble">
@@ -2333,6 +2687,7 @@
                         ${reactionsHtml}
                         <div class="message-meta"><span class="message-time">${formatTime(m.created_at)}</span>${showRead?'<span class="message-read">✓✓</span>':''}</div>
                         <div class="message-reaction-actions">${quickRx}</div>
+                        ${reactionPicker}
                     </div>
                 </div>`;
             }).join('');
@@ -2397,7 +2752,22 @@
                 sendWs({ type: 'SearchUsers', query: q.trim() });
             }, 300);
         };
+        window.showAddMenu = function() {
+            const menu = document.getElementById('zg-add-menu');
+            if (menu) {
+                menu.classList.toggle('show');
+            }
+        };
+        
+        window.hideAddMenu = function() {
+            const menu = document.getElementById('zg-add-menu');
+            if (menu) {
+                menu.classList.remove('show');
+            }
+        };
+        
         window.openAddContactFlow = function() {
+            hideAddMenu();
             appScreen = 'main';
             activeTab = 'contacts';
             sendWs({ type: 'GetFriendRequests' });
@@ -2407,6 +2777,21 @@
                 var el = document.getElementById('friend-search-input');
                 if (el) { el.focus(); el.select(); }
             }, 0);
+        };
+        
+        window.openCreateGroupFlow = function() {
+            hideAddMenu();
+            // Сбрасываем переменные
+            newGroupName = '';
+            newGroupAvatar = '';
+            newGroupMembers = [];
+            groupMembersSearch = '';
+            // Загружаем контакты если ещё не загружены
+            if (contacts.length === 0) {
+                sendWs({ type: 'GetContacts' });
+            }
+            appScreen = 'create-group';
+            renderMain();
         };
         window.sendFriendRequestFromResults = function(messengerId) {
             if (!messengerId || friendRequestSendingMid) return;
@@ -2452,7 +2837,7 @@
             renderMessages();
         };
 
-        window.toggleReactionFromEl = function(el) {
+        window.toggleReactionFromEl = function(el, skipPickerClose) {
             const mid = el.getAttribute('data-mid');
             const emoji = el.getAttribute('data-emoji');
             if (!mid || !emoji) return;
@@ -2467,11 +2852,31 @@
                 const ix = arr.findIndex(x => x.emoji === emoji && String(x.user_id) === uid);
                 if (ix >= 0) arr.splice(ix, 1);
             } else {
+                // Ограничение максимум 3 реакции от одного пользователя на сообщение
+                const myReactions = arr.filter(x => String(x.user_id) === uid);
+                if (myReactions.length >= 3) {
+                    showNotification('Максимум 3 реакции на сообщение', 'error');
+                    return;
+                }
                 arr.push({ emoji: emoji, user_id: profile?.user_id });
+            }
+            // Закрыть пикер реакций
+            if (!skipPickerClose) {
+                openReactionPickerFor = null;
             }
             renderMessages();
             if (mine) sendWs({ type: 'RemoveReaction', message_id: mid, emoji: emoji });
             else sendWs({ type: 'AddReaction', message_id: mid, emoji: emoji });
+        };
+        
+        window.toggleReactionPicker = function(el) {
+            const mid = el.getAttribute('data-mid');
+            if (openReactionPickerFor === mid) {
+                openReactionPickerFor = null;
+            } else {
+                openReactionPickerFor = mid;
+            }
+            renderMessages();
         };
 
         window.sendMsg = function() {
@@ -2566,10 +2971,13 @@
         
         window.insertEmoji = function(emoji) {
             const inp = document.querySelector('.message-input-box');
-            inp.textContent += emoji;
-            document.getElementById('send-btn').disabled = false;
+            if (!inp) return;
+            inp.textContent = (inp.textContent || '') + emoji;
+            const btn = document.getElementById('send-btn');
+            if (btn) btn.disabled = !inp.textContent.trim();
             showEmojiPicker = false;
             renderActiveView();
+            inp.focus();
         };
         
         window.attachFileClick = function() {

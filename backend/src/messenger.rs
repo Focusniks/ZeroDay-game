@@ -631,6 +631,63 @@ pub async fn remove_contact(
     Ok(())
 }
 
+/// Удалить чат (конверсацию) и все связанные данные
+pub async fn delete_conversation(
+    pool: &PgPool,
+    user_id: &str,
+    conversation_id: &str,
+) -> Result<(), sqlx::Error> {
+    let _user_uuid = Uuid::parse_str(user_id)
+        .map_err(|e| sqlx::Error::Protocol(format!("Invalid user_id: {}", e)))?;
+    let conv_uuid = Uuid::parse_str(conversation_id)
+        .map_err(|e| sqlx::Error::Protocol(format!("Invalid conversation_id: {}", e)))?;
+    
+    let mut tx = pool.begin().await?;
+    
+    // Удаляем участников
+    sqlx::query("DELETE FROM conversation_members WHERE conversation_id = $1")
+        .bind(&conv_uuid)
+        .execute(&mut *tx)
+        .await?;
+    
+    // Удаляем реакции
+    sqlx::query(
+        "DELETE FROM message_reactions WHERE message_id IN (SELECT id FROM messages WHERE conversation_id = $1)"
+    )
+    .bind(&conv_uuid)
+    .execute(&mut *tx)
+    .await?;
+    
+    // Удаляем уведомления о прочтении
+    sqlx::query(
+        "DELETE FROM message_read_receipts WHERE message_id IN (SELECT id FROM messages WHERE conversation_id = $1)"
+    )
+    .bind(&conv_uuid)
+    .execute(&mut *tx)
+    .await?;
+    
+    // Удаляем сообщения
+    sqlx::query("DELETE FROM messages WHERE conversation_id = $1")
+        .bind(&conv_uuid)
+        .execute(&mut *tx)
+        .await?;
+    
+    // Удаляем приглашения
+    sqlx::query("DELETE FROM conversation_invites WHERE conversation_id = $1")
+        .bind(&conv_uuid)
+        .execute(&mut *tx)
+        .await?;
+    
+    // Удаляем конверсацию
+    sqlx::query("DELETE FROM conversations WHERE id = $1")
+        .bind(&conv_uuid)
+        .execute(&mut *tx)
+        .await?;
+    
+    tx.commit().await?;
+    Ok(())
+}
+
 /// Получить конверсации пользователя (с последними сообщениями)
 /// Оптимизированная версия с batch запросами
 /// Сортировка по времени последнего сообщения
@@ -688,26 +745,41 @@ pub async fn get_user_conversations(
     .await
     .unwrap_or_default();
 
+    // Debug: show conv_ids
+    println!("[DEBUG] conv_ids: {:?}", conv_ids);
+    
     // Получаем unread count для всех чатов одним запросом
-    let unread_counts = sqlx::query_scalar::<_, (Uuid, i64)>(
-        r#"
-        SELECT m.conversation_id, COUNT(*)::bigint as unread_count
-        FROM messages m
-        LEFT JOIN message_read_receipts mrr ON mrr.message_id = m.id AND mrr.user_id = $1
-        WHERE m.conversation_id = ANY($2)
-        AND m.sender_id != $1
-        AND mrr.message_id IS NULL
-        AND m.deleted = false
-        GROUP BY m.conversation_id
-        "#
-    )
-    .bind(&user_uuid)
-    .bind(&conv_ids)
-    .fetch_all(pool)
-    .await
-    .unwrap_or_default();
+    // Попробуем простой запрос без массива
+    let mut unread_counts_vec = Vec::new();
+    for conv_id in &conv_ids {
+        let count_result = sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT COUNT(*)::bigint
+            FROM messages m
+            LEFT JOIN message_read_receipts mrr ON mrr.message_id = m.id AND mrr.user_id = $1
+            WHERE m.conversation_id = $2
+            AND m.sender_id != $1
+            AND mrr.message_id IS NULL
+            AND m.deleted = false
+            "#
+        )
+        .bind(&user_uuid)
+        .bind(conv_id)
+        .fetch_optional(pool)
+        .await
+        .unwrap_or(Some(0));
+        
+        if let Some(count) = count_result {
+            if count > 0 {
+                unread_counts_vec.push((*conv_id, count));
+            }
+        }
+    }
+    
+    // Debug: log unread counts
+    println!("[DEBUG] User {} conversations count: {}, unread_counts: {:?}", user_uuid, conv_ids.len(), unread_counts_vec);
 
-    let unread_map: std::collections::HashMap<Uuid, i64> = unread_counts.into_iter().collect();
+    let unread_map: std::collections::HashMap<Uuid, i64> = unread_counts_vec.into_iter().collect();
 
     // Получаем других пользователей для личных чатов с last_seen
     let other_users = sqlx::query_as::<_, OtherUserInfo>(
@@ -983,16 +1055,34 @@ pub async fn create_conversation(
     
     // Добавляем остальных участников
     for member_id_str in member_ids {
-        if let Ok(member_uuid) = Uuid::parse_str(&member_id_str) {
-            if member_uuid != creator_uuid {
-                sqlx::query(
-                    "INSERT INTO conversation_members (conversation_id, user_id, role) VALUES ($1, $2, 'member')"
-                )
-                .bind(&conv_id)
-                .bind(&member_uuid)
-                .execute(&mut *tx)
-                .await?;
+        let member_uuid: Uuid;
+        
+        // Пробуем解析 как UUID или как messenger_id
+        if let Ok(uuid) = Uuid::parse_str(&member_id_str) {
+            member_uuid = uuid;
+        } else {
+            // Пробуем найти по messenger_id
+            let found_uuid = sqlx::query_scalar::<_, Uuid>(
+                "SELECT user_id FROM messenger_profiles WHERE messenger_id = $1"
+            )
+            .bind(&member_id_str)
+            .fetch_optional(&mut *tx)
+            .await?;
+            
+            match found_uuid {
+                Some(uuid) => member_uuid = uuid,
+                None => continue, // Пропускаем если не найден
             }
+        }
+        
+        if member_uuid != creator_uuid {
+            sqlx::query(
+                "INSERT INTO conversation_members (conversation_id, user_id, role) VALUES ($1, $2, 'member') ON CONFLICT DO NOTHING"
+            )
+            .bind(&conv_id)
+            .bind(&member_uuid)
+            .execute(&mut *tx)
+            .await?;
         }
     }
     

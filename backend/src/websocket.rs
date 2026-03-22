@@ -154,6 +154,9 @@ pub enum WsMessage {
         user_ids: Vec<String>,
     },
     UpdateActivity, // Обновить активность (heartbeat)
+    DeleteConversation {
+        conversation_id: String,
+    },
     RemoveContact {
         contact_user_id: String,
     },
@@ -164,6 +167,12 @@ pub enum WsMessage {
     // Messenger responses
     ConversationCreated {
         conversation: messenger::ConversationWithLastMessage,
+    },
+    ConversationDeleted {
+        conversation_id: String,
+    },
+    ContactRemoved {
+        contact_user_id: String,
     },
     ConversationsList {
         conversations: Vec<messenger::ConversationWithLastMessage>,
@@ -1184,6 +1193,50 @@ async fn handle_connection(
                         }
                     }
                     
+                    // Удаление чата
+                    Ok(WsMessage::DeleteConversation { conversation_id }) => {
+                        match current_user {
+                            Some(ref user) => {
+                                match messenger::delete_conversation(
+                                    &pool,
+                                    &user.id,
+                                    &conversation_id,
+                                ).await {
+                                    Ok(()) => WsMessage::ConversationDeleted { conversation_id },
+                                    Err(e) => WsMessage::Error {
+                                        code: "delete_error".to_string(),
+                                        message: e.to_string(),
+                                    },
+                                }
+                            },
+                            None => WsMessage::Error {
+                                code: "not_authorized".to_string(),
+                                message: "Требуется авторизация".to_string(),
+                            },
+                        }
+                    }
+                    // Удаление контакта
+                    Ok(WsMessage::RemoveContact { contact_user_id }) => {
+                        match current_user {
+                            Some(ref user) => {
+                                match messenger::remove_contact(
+                                    &pool,
+                                    &user.id,
+                                    &contact_user_id,
+                                ).await {
+                                    Ok(()) => WsMessage::ContactRemoved { contact_user_id },
+                                    Err(e) => WsMessage::Error {
+                                        code: "remove_contact_error".to_string(),
+                                        message: e.to_string(),
+                                    },
+                                }
+                            },
+                            None => WsMessage::Error {
+                                code: "not_authorized".to_string(),
+                                message: "Требуется авторизация".to_string(),
+                            },
+                        }
+                    }
                     // Обновление активности (heartbeat)
                     Ok(WsMessage::UpdateActivity) => {
                         match current_user {
