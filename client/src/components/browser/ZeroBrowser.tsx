@@ -2062,6 +2062,7 @@ export function ZeroBrowser({
         const params = new URLSearchParams();
         if (token) params.set('token', token);
         params.set('ws_url', browserConfig.wsUrl);
+        params.set('http_url', browserConfig.httpOrigin);
         const iframeSrc = `${browserConfig.httpOrigin}/sites/${encodeURIComponent(slug)}?${params.toString()}`;
         return (
           <div className="h-full">
@@ -2100,6 +2101,7 @@ export function ZeroBrowser({
         const params = new URLSearchParams();
         if (token) params.set('token', token);
         params.set('ws_url', browserConfig.wsUrl);
+        params.set('http_url', browserConfig.httpOrigin);
         const iframeSrc = `${browserConfig.httpOrigin}/sites/${encodeURIComponent(slug)}?${params.toString()}`;
         return (
           <div className="h-full">
