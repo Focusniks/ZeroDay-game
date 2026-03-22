@@ -28,7 +28,7 @@ export function Header() {
   const navLinks = [
     { to: '/', label: 'Главная' },
     { to: '/marketplace', label: 'Маркетплейс' },
-    { to: '/services', label: 'Услуги' },
+    { to: '/subscription', label: 'Подписка' },
   ];
 
   return (

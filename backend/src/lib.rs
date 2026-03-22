@@ -8,6 +8,8 @@ pub mod fs_online;
 pub mod messenger;
 pub mod admin;
 pub mod admin_http;
+pub mod subscription;
+pub mod subscription_http;
 
 use jsonwebtoken::{EncodingKey, DecodingKey};
 use sqlx::PgPool;

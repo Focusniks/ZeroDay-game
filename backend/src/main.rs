@@ -8,7 +8,7 @@ use sqlx::PgPool;
 use std::env;
 use std::path::Path;
 use uuid::Uuid;
-use zeroday_backend::{auth, browser, db, websocket, fs_online, sites, messenger, admin_http};
+use zeroday_backend::{auth, browser, db, websocket, fs_online, sites, messenger, admin_http, subscription_http};
 use zeroday_backend::auth::User as AuthUser;
 use zeroday_backend::middleware::{RateLimiter, extract_client_ip};
 use std::sync::Arc;
@@ -2015,6 +2015,14 @@ async fn main() -> anyhow::Result<()> {
             .route("/admin/logs", web::get().to(admin_http::get_logs_http))
             .route("/admin/beta-applications", web::get().to(admin_http::get_beta_applications_http))
             .route("/admin/beta-applications/{id}", web::patch().to(admin_http::update_beta_application_http))
+            // Subscription API
+            .route("/subscription/modules", web::get().to(subscription_http::get_modules_http))
+            .route("/subscription/my", web::get().to(subscription_http::get_my_subscription_http))
+            .route("/subscription", web::post().to(subscription_http::create_subscription_http))
+            .route("/subscription/module", web::post().to(subscription_http::add_module_http))
+            .route("/subscription/module", web::delete().to(subscription_http::remove_module_http))
+            .route("/subscription/cancel", web::post().to(subscription_http::cancel_subscription_http))
+            .route("/subscription/renew", web::post().to(subscription_http::renew_subscription_http))
             .route("/marketplace/lots", web::get().to(list_lots_http))
             .route("/marketplace/lots", web::post().to(create_lot_http))
             .route("/marketplace/my/lots", web::get().to(my_lots_http))

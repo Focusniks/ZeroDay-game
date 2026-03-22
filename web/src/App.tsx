@@ -9,7 +9,7 @@ import { LoginPage } from './pages/LoginPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { AdminPanelPage } from './pages/AdminPanelPage';
 import { MarketplacePage } from './pages/MarketplacePage';
-import { ServicesPage } from './pages/ServicesPage';
+import { SubscriptionPage } from './pages/SubscriptionPage';
 import './styles/index.css';
 
 /** Защищённый роут для авторизованных */
@@ -80,7 +80,7 @@ export default function App() {
           }
         />
         <Route path="/marketplace" element={<MarketplacePage />} />
-        <Route path="/services" element={<ServicesPage />} />
+        <Route path="/subscription" element={<SubscriptionPage />} />
         {/* Редирект на главную */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
