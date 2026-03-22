@@ -4,11 +4,19 @@ import type { GameLanguage } from "../../lib/gameConfig";
 import { useWindowFrame } from "../../desktop/modules/WindowFrameModule";
 import { playWindowClose, playWindowMaximize, playWindowMinimize, playWindowRestore } from "../../lib/osSounds";
 import { useAuth } from "../../hooks/useAuth";
+import { useGameConfig } from "../../hooks/useGameConfig";
 import { themeIconUrl } from "../../lib/themeIcons";
 import { eventBus, DesktopEvents } from "../../desktop/modules/EventBus";
 import { notificationManager } from "../../desktop/modules/NotificationModule/NotificationModule";
 
-const BROWSER_API_ORIGIN = "http://127.0.0.1:8000";
+// Преобразование ws:// URL в http:// URL
+function wsToHttpUrl(wsUrl: string): string {
+  return wsUrl.replace(/^ws:\/\//, 'http://').replace(/\/ws$/, '');
+}
+
+// Значения по умолчанию
+const DEFAULT_BROWSER_API_ORIGIN = "http://127.0.0.1:8000";
+const DEFAULT_WS_URL = "ws://127.0.0.1:8080";
 
 function parseZerodaySearchQuery(url: string): string {
   const m = url.match(/^zeroday:\/\/search\??(.*)$/i);
@@ -477,7 +485,15 @@ export function ZeroBrowser({
   bandwidth = 0
 }: Props) {
   const title = "Zero Browser";
-  const { user } = useAuth();
+  const { user, wsUrl: authWsUrl } = useAuth();
+  
+  // Вычисляем URL из настроек игры
+  const browserConfig = useMemo(() => {
+    // Используем wsUrl из настроек игры (через auth)
+    const wsUrl = authWsUrl || DEFAULT_WS_URL;
+    const httpOrigin = wsToHttpUrl(wsUrl);
+    return { wsUrl, httpOrigin };
+  }, [authWsUrl]);
 
   const [tabs, setTabs] = useState<BrowserTab[]>([
     { id: "tab-1", title: lang === "ru" ? "Домашняя" : "Home", url: "zeroday://home" }
@@ -622,7 +638,7 @@ export function ZeroBrowser({
     const loadData = async () => {
       setIsLoadingData(true);
       try {
-        const sitesRes = await fetch(`${BROWSER_API_ORIGIN}/api/browser/sites`);
+        const sitesRes = await fetch(`${browserConfig.httpOrigin}/api/browser/sites`);
         if (sitesRes.ok) {
           const json: unknown = await sitesRes.json();
           const raw = Array.isArray(json) ? json : [];
@@ -634,10 +650,10 @@ export function ZeroBrowser({
         const token = localStorage.getItem("zeroday.token");
         if (user && token) {
           const [bookmarksRes, settingsRes] = await Promise.all([
-            fetch(`${BROWSER_API_ORIGIN}/api/browser/bookmarks`, {
+            fetch(`${browserConfig.httpOrigin}/api/browser/bookmarks`, {
               headers: { Authorization: `Bearer ${token}` }
             }),
-            fetch(`${BROWSER_API_ORIGIN}/api/browser/settings`, {
+            fetch(`${browserConfig.httpOrigin}/api/browser/settings`, {
               headers: { Authorization: `Bearer ${token}` }
             })
           ]);
@@ -685,7 +701,7 @@ export function ZeroBrowser({
     void (async () => {
       try {
         const res = await fetch(
-          `${BROWSER_API_ORIGIN}/api/browser/search?q=${encodeURIComponent(q)}`,
+          `${browserConfig.httpOrigin}/api/browser/search?q=${encodeURIComponent(q)}`,
           { signal: ac.signal }
         );
         if (!res.ok) {
@@ -764,7 +780,7 @@ export function ZeroBrowser({
     setBrowserHistoryLoading(true);
     void (async () => {
       try {
-        const res = await fetch(`${BROWSER_API_ORIGIN}/api/browser/history?limit=300`, {
+        const res = await fetch(`${browserConfig.httpOrigin}/api/browser/history?limit=300`, {
           headers: { Authorization: `Bearer ${token}` },
           signal: ac.signal,
         });
@@ -932,7 +948,7 @@ export function ZeroBrowser({
       const token = localStorage.getItem("zeroday.token");
       if (!token) return;
 
-      void fetch(`${BROWSER_API_ORIGIN}/api/browser/history`, {
+      void fetch(`${browserConfig.httpOrigin}/api/browser/history`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1117,7 +1133,7 @@ export function ZeroBrowser({
         return;
       }
       try {
-        const res = await fetch(`${BROWSER_API_ORIGIN}/api/browser/history/${entryId}`, {
+        const res = await fetch(`${browserConfig.httpOrigin}/api/browser/history/${entryId}`, {
           method: "DELETE",
           headers: { Authorization: `Bearer ${localStorage.getItem("zeroday.token") ?? ""}` },
         });
@@ -1157,12 +1173,12 @@ export function ZeroBrowser({
             : days != null && days > 0
               ? `scope=older_than&days=${days}`
               : `scope=older_than&hours=${hours ?? 24}`;
-        const res = await fetch(`${BROWSER_API_ORIGIN}/api/browser/history?${q}`, {
+        const res = await fetch(`${browserConfig.httpOrigin}/api/browser/history?${q}`, {
           method: "DELETE",
           headers: { Authorization: `Bearer ${localStorage.getItem("zeroday.token") ?? ""}` },
         });
         if (res.ok) {
-          const listRes = await fetch(`${BROWSER_API_ORIGIN}/api/browser/history?limit=300`, {
+          const listRes = await fetch(`${browserConfig.httpOrigin}/api/browser/history?limit=300`, {
             headers: { Authorization: `Bearer ${localStorage.getItem("zeroday.token") ?? ""}` },
           });
           if (listRes.ok) {
@@ -1184,7 +1200,7 @@ export function ZeroBrowser({
 
     try {
       const site = sites.find(s => s.url === url);
-      const response = await fetch(`${BROWSER_API_ORIGIN}/api/browser/bookmarks`, {
+      const response = await fetch(`${browserConfig.httpOrigin}/api/browser/bookmarks`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1212,7 +1228,7 @@ export function ZeroBrowser({
 
   const removeBookmark = useCallback(async (bookmarkId: string) => {
     try {
-      const response = await fetch(`${BROWSER_API_ORIGIN}/api/browser/bookmarks/${bookmarkId}`, {
+      const response = await fetch(`${browserConfig.httpOrigin}/api/browser/bookmarks/${bookmarkId}`, {
         method: "DELETE",
         headers: {
           "Authorization": `Bearer ${localStorage.getItem("zeroday.token")}`
@@ -1232,7 +1248,7 @@ export function ZeroBrowser({
     async (bookmarkId: string, custom_url: string, custom_name: string) => {
       if (!user) return false;
       try {
-        const response = await fetch(`${BROWSER_API_ORIGIN}/api/browser/bookmarks/${bookmarkId}`, {
+        const response = await fetch(`${browserConfig.httpOrigin}/api/browser/bookmarks/${bookmarkId}`, {
           method: "PUT",
           headers: {
             "Content-Type": "application/json",
@@ -1261,7 +1277,7 @@ export function ZeroBrowser({
 
   const saveSettingsToServer = useCallback(async (payload: BrowserSettings) => {
     try {
-      const response = await fetch(`${BROWSER_API_ORIGIN}/api/browser/settings`, {
+      const response = await fetch(`${browserConfig.httpOrigin}/api/browser/settings`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -2039,7 +2055,10 @@ export function ZeroBrowser({
       const slug = resolveSiteSlugFromUrl(site.url);
       if (slug) {
         const token = typeof window !== "undefined" ? localStorage.getItem("zeroday.token") : null;
-        const iframeSrc = `${BROWSER_API_ORIGIN}/sites/${encodeURIComponent(slug)}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+        const params = new URLSearchParams();
+        if (token) params.set('token', token);
+        params.set('browserConfig.wsUrl', browserConfig.wsUrl);
+        const iframeSrc = `${browserConfig.httpOrigin}/sites/${encodeURIComponent(slug)}?${params.toString()}`;
         return (
           <div className="h-full">
             <iframe
@@ -2074,7 +2093,10 @@ export function ZeroBrowser({
       const slug = resolveSiteSlugFromUrl(activeTab.url);
       if (slug) {
         const token = typeof window !== "undefined" ? localStorage.getItem("zeroday.token") : null;
-        const iframeSrc = `${BROWSER_API_ORIGIN}/sites/${encodeURIComponent(slug)}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+        const params = new URLSearchParams();
+        if (token) params.set('token', token);
+        params.set('browserConfig.wsUrl', browserConfig.wsUrl);
+        const iframeSrc = `${browserConfig.httpOrigin}/sites/${encodeURIComponent(slug)}?${params.toString()}`;
         return (
           <div className="h-full">
             <iframe
