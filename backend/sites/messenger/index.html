@@ -1293,6 +1293,12 @@
         let searchQuery = '';
         let friendSearchQuery = '';
         let friendSearchResults = [];
+        // Переменные для создания группы
+        let newGroupName = '';
+        let newGroupAvatar = '';
+        let newGroupMembers = [];
+        let groupMembersSearch = '';
+        let groupContacts = [];
         let friendSearchLoading = false;
         let friendSearchTimeout = null;
         let friendRequests = [];
@@ -2118,12 +2124,6 @@
             renderMain();
         };
 
-        // Переменные для создания группы
-        let newGroupName = '';
-        let newGroupAvatar = '';
-        let newGroupMembers = [];
-        let groupMembersSearch = '';
-        let groupContacts = [];
         
         function renderCreateGroupScreen() {
             const avatarHtml = newGroupAvatar 
@@ -2178,8 +2178,7 @@
                             
                             <div style="margin-top:20px;display:flex;justify-content:center;">
                                 <button type="button" onclick="createGroup()" 
-                                    style="padding:12px 32px;background:var(--zg-blue);color:#fff;border:none;border-radius:8px;font-size:16px;cursor:pointer;opacity:${newGroupName && newGroupMembers.length > 0 ? '1' : '0.5'}"
-                                    ${!newGroupName || newGroupMembers.length < 1 ? 'disabled' : ''}>
+                                    style="padding:12px 32px;background:var(--zg-blue);color:#fff;border:none;border-radius:8px;font-size:16px;cursor:pointer;">
                                     Создать группу
                                 </button>
                             </div>
@@ -2237,7 +2236,11 @@
         };
         
         window.createGroup = function() {
-            if (!newGroupName || newGroupMembers.length < 1) return;
+            console.log('createGroup called, newGroupName:', newGroupName, 'newGroupMembers:', newGroupMembers);
+            if (!newGroupName || newGroupMembers.length < 1) {
+                showNotification('Введите название группы и добавьте участников', 'error');
+                return;
+            }
             // Используем CreateConversation
             sendWs({
                 type: 'CreateConversation',
@@ -2370,10 +2373,12 @@
                                 <div class="zg-list-panel__tools" style="position: relative;">
                                     <button type="button" class="zg-icon-tool" onclick="showAddMenu()" title="Создать чат">＋</button>
                                     <div id="zg-add-menu" class="zg-add-menu">
+                                        ${activeTab === 'chats' ? `
                                         <div class="zg-add-menu-item" onclick="openCreateGroupFlow()">
                                             <span class="zg-add-menu-icon">👥</span>
                                             <span>Создать группу</span>
                                         </div>
+                                        ` : ''}
                                         <div class="zg-add-menu-item" onclick="openAddContactFlow()">
                                             <span class="zg-add-menu-icon">👤</span>
                                             <span>Добавить контакт</span>
@@ -2669,15 +2674,13 @@
                       ).join('') + '</div>'
                     : '';
                 const allReactions = ['👍','❤️','🔥','😊','😂','😮','😢','😡','👎','🎉','🙏','😍','🤔','😎','🥳','🤩','😱','💯','✨','💪'];
+                // Только кнопка для добавления реакций
                 const quickRx = !m.pending ? 
-                    ['👍','❤️','🔥'].map(em =>
-                        `<button type="button" class="reaction-quick" data-mid="${mid}" data-emoji="${em}" onclick="toggleReactionFromEl(this)" title="Реакция">${em}</button>`
-                    ).join('') +
-                    `<button type="button" class="reaction-add-btn" data-mid="${mid}" onclick="toggleReactionPicker(this)" title="Добавить реакцию">😀+</button>`
+                    `<button type="button" class="reaction-add-btn" data-mid="${mid}" onclick="toggleReactionPicker(event, '${mid}')" title="Добавить реакцию">+</button>`
                 : '';
 
                 const reactionPicker = (openReactionPickerFor === mid && !m.pending) ? 
-                    `<div class="reaction-picker">${allReactions.map(em => `<button class="emoji-btn" data-mid="${mid}" data-emoji="${em}" onclick="toggleReactionFromEl(this, true)">${em}</button>`).join('')}</div>` 
+                    `<div class="reaction-picker" data-mid="${mid}">${allReactions.map(em => `<button type="button" class="emoji-btn" data-mid="${mid}" data-emoji="${em}" onclick="addReaction(event, '${mid}', '${em}')">${em}</button>`).join('')}</div>` 
                     : '';
                 return `<div class="message ${own?'own':''} ${m.pending?'message-pending':''}" data-message-id="${escapeHtml(mid)}">
                     ${!own?'<div class="message-avatar">'+avatarContent+'</div>':''}
@@ -2869,14 +2872,36 @@
             else sendWs({ type: 'AddReaction', message_id: mid, emoji: emoji });
         };
         
-        window.toggleReactionPicker = function(el) {
-            const mid = el.getAttribute('data-mid');
+        window.toggleReactionPicker = function(e, mid) {
+            e.stopPropagation();
             if (openReactionPickerFor === mid) {
                 openReactionPickerFor = null;
             } else {
                 openReactionPickerFor = mid;
             }
             renderMessages();
+        };
+        
+        window.addReaction = function(e, mid, emoji) {
+            e.stopPropagation();
+            if (!activeConversation || !wsConnected) return;
+            const cid = String(activeConversation.id);
+            const uid = String(profile?.user_id || '');
+            if (!messageReactions[cid]) messageReactions[cid] = {};
+            if (!messageReactions[cid][mid]) messageReactions[cid][mid] = [];
+            const arr = messageReactions[cid][mid];
+            // Ограничение максимум 3 реакции от одного пользователя
+            const myReactions = arr.filter(x => String(x.user_id) === uid);
+            if (myReactions.length >= 3) {
+                showNotification('Максимум 3 реакции на сообщение', 'error');
+                openReactionPickerFor = null;
+                renderMessages();
+                return;
+            }
+            arr.push({ emoji: emoji, user_id: profile?.user_id });
+            openReactionPickerFor = null;
+            renderMessages();
+            sendWs({ type: 'AddReaction', message_id: mid, emoji: emoji });
         };
 
         window.sendMsg = function() {
@@ -2972,7 +2997,8 @@
         window.insertEmoji = function(emoji) {
             const inp = document.querySelector('.message-input-box');
             if (!inp) return;
-            inp.textContent = (inp.textContent || '') + emoji;
+            // Используем insertText для contenteditable
+            document.execCommand('insertText', false, emoji);
             const btn = document.getElementById('send-btn');
             if (btn) btn.disabled = !inp.textContent.trim();
             showEmojiPicker = false;
