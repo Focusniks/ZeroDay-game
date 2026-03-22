@@ -1,0 +1,135 @@
+/**
+ * Глобальные стили для ZeroDay Web
+ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Базовые стили */
+@layer base {
+  * {
+    @apply border-cyber-border;
+  }
+
+  body {
+    @apply bg-cyber-black text-cyber-text antialiased;
+    font-family: 'Inter', 'Space Grotesk', system-ui, sans-serif;
+    overflow-x: hidden;
+  }
+
+  html {
+    overflow-x: hidden;
+  }
+
+  /* Кастомный скроллбар */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-cyber-darker;
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-cyber-border rounded-full;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-cyber-muted;
+  }
+
+  ::-webkit-scrollbar-corner {
+    @apply bg-cyber-darker;
+  }
+
+  /* Плавный скролл */
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+/* Компоненты */
+@layer components {
+  /* Неоновые эффекты */
+  .neon-glow {
+    box-shadow: 0 0 5px rgba(0, 212, 255, 0.3),
+                0 0 20px rgba(0, 212, 255, 0.1);
+  }
+
+  .neon-text {
+    text-shadow: 0 0 10px rgba(0, 212, 255, 0.5),
+                 0 0 20px rgba(0, 212, 255, 0.3);
+  }
+
+  /* Градиентные границы */
+  .gradient-border {
+    position: relative;
+  }
+
+  .gradient-border::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(0, 212, 255, 0.5), transparent);
+  }
+
+  /* Карточки */
+  .cyber-card {
+    @apply bg-cyber-card/50 backdrop-blur-xl border border-cyber-border/30 rounded-2xl overflow-hidden;
+  }
+
+  /* Кнопки */
+  .cyber-btn {
+    @apply px-5 py-2.5 rounded-lg font-medium transition-all duration-200;
+  }
+
+  .cyber-btn-primary {
+    @apply cyber-btn bg-neon-cyan/10 text-neon-cyan border border-neon-cyan/30;
+    @apply hover:bg-neon-cyan/20 hover:border-neon-cyan/50;
+    @apply active:scale-95;
+  }
+
+  .cyber-btn-danger {
+    @apply cyber-btn bg-accent-danger/10 text-accent-danger border border-accent-danger/30;
+    @apply hover:bg-accent-danger/20 hover:border-accent-danger/50;
+    @apply active:scale-95;
+  }
+
+  /* Инпуты */
+  .cyber-input {
+    @apply w-full px-4 py-2.5 rounded-lg bg-cyber-darker border border-cyber-border/50;
+    @apply text-white placeholder-cyber-muted/50;
+    @apply focus:outline-none focus:border-neon-cyan/50 transition-colors;
+  }
+
+  /* Градиентный текст */
+  .gradient-text {
+    @apply bg-gradient-to-r from-neon-cyan to-neon-purple bg-clip-text text-transparent;
+  }
+}
+
+/* Утилиты */
+@layer utilities {
+  /* Анимации */
+  .animate-float {
+    animation: float 6s ease-in-out infinite;
+  }
+
+  .animate-glow-pulse {
+    animation: glow-pulse 2s ease-in-out infinite;
+  }
+
+  /* Grid паттерн */
+  .bg-grid-pattern {
+    background-image: linear-gradient(rgba(0, 212, 255, 0.03) 1px, transparent 1px),
+                     linear-gradient(90deg, rgba(0, 212, 255, 0.03) 1px, transparent 1px);
+    background-size: 50px 50px;
+  }
+}

@@ -76,6 +76,34 @@ struct ChangePasswordPayload {
 }
 
 #[derive(Deserialize)]
+struct BetaApplyPayload {
+    email: String,
+    source: String,
+}
+
+async fn beta_apply_http(state: web::Data<AppState>, payload: web::Json<BetaApplyPayload>) -> impl Responder {
+    let result = sqlx::query(
+        "INSERT INTO beta_applications (id, email, source, status, created_at) VALUES ($1, $2, $3, $4, NOW())"
+    )
+    .bind(Uuid::new_v4().to_string())
+    .bind(&payload.email)
+    .bind(&payload.source)
+    .bind("pending")
+    .execute(&state.pool)
+    .await;
+
+    match result {
+        Ok(_) => HttpResponse::Ok().json(serde_json::json!({
+            "ok": true
+        })),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
+            "ok": false,
+            "error": format!("Failed to submit application: {}", e)
+        })),
+    }
+}
+
+#[derive(Deserialize)]
 struct CreateLotPayload {
     name: String,
     category: String,
@@ -1967,6 +1995,7 @@ async fn main() -> anyhow::Result<()> {
             .route("/debug/db", web::get().to(debug_db))
             .route("/auth/register", web::post().to(register_http))
             .route("/auth/login", web::post().to(login_http))
+            .route("/beta-apply", web::post().to(beta_apply_http))
             .route("/auth/me", web::get().to(me_http))
             .route("/auth/change-password", web::post().to(change_password_http))
             .route("/marketplace/lots", web::get().to(list_lots_http))
