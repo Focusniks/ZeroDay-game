@@ -112,6 +112,17 @@ pub struct FriendRequest {
     pub created_at: DateTime<Utc>,
 }
 
+/// Исходящий запрос в друзья (отправитель видит получателя)
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct OutgoingFriendRequest {
+    pub id: Uuid,
+    pub receiver_user_id: Uuid,
+    pub receiver_display_name: String,
+    pub receiver_messenger_id: String,
+    pub receiver_avatar_url: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
 /// Чат (конверсация) - упрощённая версия без nested типов
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Conversation {
@@ -145,6 +156,9 @@ pub struct OtherUserInfo {
     pub conversation_id: Uuid,
     pub id: Uuid,
     pub username: String,
+    /// Локальное имя из messenger_contacts (как вы называете контакт у себя)
+    #[sqlx(default)]
+    pub custom_name: Option<String>,
     pub avatar_url: Option<String>,
     pub is_online: bool,
     pub last_seen: Option<DateTime<Utc>>,
@@ -177,6 +191,9 @@ pub struct Message {
     
     #[sqlx(default)]
     pub is_read: bool,
+
+    #[sqlx(default)]
+    pub edited: bool,
 }
 
 // ==================== ФУНКЦИИ ====================
@@ -369,6 +386,77 @@ pub async fn get_incoming_friend_requests(
     .bind(&user_uuid)
     .fetch_all(pool)
     .await
+}
+
+/// Исходящие запросы в друзья (ожидают ответа)
+pub async fn get_outgoing_friend_requests(
+    pool: &PgPool,
+    user_id: &str,
+) -> Result<Vec<OutgoingFriendRequest>, sqlx::Error> {
+    let user_uuid = Uuid::parse_str(user_id).unwrap_or(Uuid::nil());
+
+    sqlx::query_as::<_, OutgoingFriendRequest>(
+        r#"
+        SELECT
+            fr.id,
+            fr.receiver_user_id,
+            COALESCE(mp.display_name, 'Unknown') as receiver_display_name,
+            COALESCE(mp.messenger_id, 'unknown') as receiver_messenger_id,
+            mp.avatar_url as receiver_avatar_url,
+            fr.created_at
+        FROM friend_requests fr
+        JOIN messenger_profiles mp ON mp.user_id = fr.receiver_user_id
+        WHERE fr.sender_user_id = $1 AND fr.status = 'pending'
+        ORDER BY fr.created_at DESC
+        "#,
+    )
+    .bind(&user_uuid)
+    .fetch_all(pool)
+    .await
+}
+
+/// Отменить свой исходящий запрос в друзья
+pub async fn cancel_friend_request(
+    pool: &PgPool,
+    sender_id: &str,
+    request_id: &Uuid,
+) -> Result<(), anyhow::Error> {
+    let sender_uuid = Uuid::parse_str(sender_id)
+        .map_err(|e| anyhow::anyhow!("Invalid sender_id: {}", e))?;
+
+    let mut tx = pool.begin().await?;
+
+    let receiver_id: Option<Uuid> = sqlx::query_scalar::<_, Uuid>(
+        r#"
+        SELECT receiver_user_id FROM friend_requests
+        WHERE id = $1 AND sender_user_id = $2 AND status = 'pending'
+        "#,
+    )
+    .bind(request_id)
+    .bind(&sender_uuid)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let receiver_id = receiver_id.ok_or_else(|| anyhow::anyhow!("Запрос не найден"))?;
+
+    sqlx::query("DELETE FROM friend_requests WHERE id = $1")
+        .bind(request_id)
+        .execute(&mut *tx)
+        .await?;
+
+    sqlx::query(
+        r#"
+        DELETE FROM messenger_contacts
+        WHERE owner_user_id = $1 AND contact_user_id = $2 AND status = 'pending'
+        "#,
+    )
+    .bind(&sender_uuid)
+    .bind(&receiver_id)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    Ok(())
 }
 
 /// Ответить на запрос в друзья
@@ -628,12 +716,14 @@ pub async fn get_user_conversations(
             cm.conversation_id,
             u.id,
             COALESCE(mp.display_name, u.username) as username,
+            mc.custom_name as custom_name,
             mp.avatar_url as avatar_url,
             COALESCE(uos.is_online, false) as is_online,
             uos.last_seen
         FROM conversation_members cm
         JOIN users u ON u.id = cm.user_id
         LEFT JOIN messenger_profiles mp ON mp.user_id = u.id
+        LEFT JOIN messenger_contacts mc ON mc.owner_user_id = $2 AND mc.contact_user_id = u.id
         LEFT JOIN user_online_status uos ON uos.user_id = u.id
         WHERE cm.conversation_id = ANY($1)
         AND cm.user_id != $2
@@ -672,6 +762,7 @@ pub async fn get_user_conversations(
                 other_user_map.get(&conv.id).map(|ou| OtherUserInfo {
                     id: ou.id,
                     username: ou.username.clone(),
+                    custom_name: ou.custom_name.clone(),
                     avatar_url: ou.avatar_url.clone(),
                     is_online: ou.is_online,
                     conversation_id: ou.conversation_id,
@@ -700,43 +791,63 @@ pub async fn get_user_conversations(
     Ok(result)
 }
 
-/// Получить сообщения конверсации
+/// Получить сообщения конверсации (с пагинацией по before)
 pub async fn fetch_conversation_messages(
     pool: &PgPool,
     conversation_id: &str,
     user_id: &str,
     limit: i32,
+    before: Option<DateTime<Utc>>,
 ) -> Result<Vec<Message>, sqlx::Error> {
-    // Конвертируем conversation_id в Uuid
     let conv_uuid = Uuid::parse_str(conversation_id)
         .map_err(|e| sqlx::Error::Protocol(format!("Invalid conversation_id: {}", e)))?;
-    
-    // Конвертируем user_id в Uuid
-    let user_uuid = Uuid::parse_str(user_id)
-        .unwrap_or(Uuid::nil());
-    
-    sqlx::query_as::<_, Message>(
-        r#"
-        SELECT
-            m.id, m.conversation_id, m.sender_id, m.content, m.message_type,
-            m.created_at, m.updated_at,
-            mp.messenger_id as sender_username,
-            EXISTS(
-                SELECT 1 FROM message_read_receipts mrr
-                WHERE mrr.message_id = m.id AND mrr.user_id = $2
-            ) as is_read
-        FROM messages m
-        LEFT JOIN messenger_profiles mp ON mp.user_id = m.sender_id
-        WHERE m.conversation_id = $3 AND m.deleted = false
-        ORDER BY m.created_at DESC
-        LIMIT $1
-        "#
-    )
-    .bind(limit)
-    .bind(&user_uuid)
-    .bind(&conv_uuid)
-    .fetch_all(pool)
-    .await
+    let user_uuid = Uuid::parse_str(user_id).unwrap_or(Uuid::nil());
+
+    match before {
+        Some(before_ts) => {
+            sqlx::query_as::<_, Message>(
+                r#"
+                SELECT m.id, m.conversation_id, m.sender_id, m.content, m.message_type,
+                    m.created_at, m.updated_at,
+                    mp.messenger_id as sender_username,
+                    EXISTS(SELECT 1 FROM message_read_receipts mrr WHERE mrr.message_id = m.id AND mrr.user_id = $2) as is_read,
+                    m.edited
+                FROM messages m
+                LEFT JOIN messenger_profiles mp ON mp.user_id = m.sender_id
+                WHERE m.conversation_id = $3 AND m.deleted = false AND m.created_at < $4
+                ORDER BY m.created_at DESC
+                LIMIT $1
+                "#,
+            )
+            .bind(limit)
+            .bind(&user_uuid)
+            .bind(&conv_uuid)
+            .bind(before_ts)
+            .fetch_all(pool)
+            .await
+        }
+        None => {
+            sqlx::query_as::<_, Message>(
+                r#"
+                SELECT m.id, m.conversation_id, m.sender_id, m.content, m.message_type,
+                    m.created_at, m.updated_at,
+                    mp.messenger_id as sender_username,
+                    EXISTS(SELECT 1 FROM message_read_receipts mrr WHERE mrr.message_id = m.id AND mrr.user_id = $2) as is_read,
+                    m.edited
+                FROM messages m
+                LEFT JOIN messenger_profiles mp ON mp.user_id = m.sender_id
+                WHERE m.conversation_id = $3 AND m.deleted = false
+                ORDER BY m.created_at DESC
+                LIMIT $1
+                "#,
+            )
+            .bind(limit)
+            .bind(&user_uuid)
+            .bind(&conv_uuid)
+            .fetch_all(pool)
+            .await
+        }
+    }
 }
 
 /// Получить сообщения (wrapper)
@@ -745,9 +856,9 @@ pub async fn get_conversation_messages(
     conversation_id: &str,
     user_id: &str,
     limit: i32,
-    _before: Option<DateTime<Utc>>,
+    before: Option<DateTime<Utc>>,
 ) -> Result<Vec<Message>, sqlx::Error> {
-    fetch_conversation_messages(pool, conversation_id, user_id, limit).await
+    fetch_conversation_messages(pool, conversation_id, user_id, limit, before).await
 }
 
 /// Отметить сообщения как прочитанные
@@ -956,44 +1067,138 @@ pub async fn send_message_full(
     .await
 }
 
-/// Транслировать сообщение всем участникам конверсации (кроме отправителя)
-/// Также отправляет обновлённый список чатов
+/// Одно сообщение для ленты (viewer — для флага прочтения).
+pub async fn fetch_message_by_id_for_viewer(
+    pool: &PgPool,
+    message_id: &Uuid,
+    viewer_user_id: &str,
+) -> Result<Option<Message>, sqlx::Error> {
+    let viewer_uuid = Uuid::parse_str(viewer_user_id).unwrap_or(Uuid::nil());
+    sqlx::query_as::<_, Message>(
+        r#"
+        SELECT m.id, m.conversation_id, m.sender_id, m.content, m.message_type,
+            m.created_at, m.updated_at,
+            mp.messenger_id as sender_username,
+            EXISTS(SELECT 1 FROM message_read_receipts mrr WHERE mrr.message_id = m.id AND mrr.user_id = $2) as is_read,
+            m.edited
+        FROM messages m
+        LEFT JOIN messenger_profiles mp ON mp.user_id = m.sender_id
+        WHERE m.id = $1 AND m.deleted = false
+        "#,
+    )
+    .bind(message_id)
+    .bind(&viewer_uuid)
+    .fetch_optional(pool)
+    .await
+}
+
+/// Мягкое удаление (только автор сообщения).
+pub async fn soft_delete_message(
+    pool: &PgPool,
+    message_id: &str,
+    user_id: &str,
+) -> Result<Option<Uuid>, sqlx::Error> {
+    let mid = Uuid::parse_str(message_id)
+        .map_err(|e| sqlx::Error::Protocol(format!("Invalid message_id: {}", e)))?;
+    let uid = Uuid::parse_str(user_id)
+        .map_err(|e| sqlx::Error::Protocol(format!("Invalid user_id: {}", e)))?;
+    sqlx::query_scalar::<_, Uuid>(
+        r#"
+        UPDATE messages SET deleted = true, updated_at = NOW()
+        WHERE id = $1 AND sender_id = $2 AND deleted = false
+        RETURNING conversation_id
+        "#,
+    )
+    .bind(mid)
+    .bind(uid)
+    .fetch_optional(pool)
+    .await
+}
+
+/// Редактирование текста (только автор, не удалённые).
+pub async fn edit_message_content(
+    pool: &PgPool,
+    message_id: &str,
+    sender_user_id: &str,
+    new_content: &str,
+    viewer_user_id: &str,
+) -> Result<Option<Message>, sqlx::Error> {
+    let trimmed = new_content.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    let mid = Uuid::parse_str(message_id)
+        .map_err(|e| sqlx::Error::Protocol(format!("Invalid message_id: {}", e)))?;
+    let sender = Uuid::parse_str(sender_user_id)
+        .map_err(|e| sqlx::Error::Protocol(format!("Invalid user_id: {}", e)))?;
+    let content: String = trimmed.chars().take(8000).collect();
+    let n = sqlx::query(
+        r#"
+        UPDATE messages SET content = $1, edited = true, updated_at = NOW()
+        WHERE id = $2 AND sender_id = $3 AND deleted = false
+        "#,
+    )
+    .bind(&content)
+    .bind(mid)
+    .bind(sender)
+    .execute(pool)
+    .await?;
+    if n.rows_affected() == 0 {
+        return Ok(None);
+    }
+    fetch_message_by_id_for_viewer(pool, &mid, viewer_user_id).await
+}
+
+/// Транслировать JSON всем участникам конверсации, кроме `exclude_user_id`.
+/// `with_conversations_list`: для каждого получателя один раз подтянуть список чатов (дорого — только если нужно).
+/// Не держим блокировку `connections` во время запросов к БД.
 pub async fn broadcast_to_conversation(
-    connections: &tokio::sync::RwLock<std::collections::HashMap<String, tokio::sync::mpsc::UnboundedSender<String>>>,
+    connections: &crate::websocket::SharedConnections,
     conversation_id: &str,
     pool: &PgPool,
     message_json: &str,
-    sender_id: &str,
+    exclude_user_id: &str,
+    with_conversations_list: bool,
 ) {
-    // Конвертируем conversation_id в Uuid
-    let conv_uuid = Uuid::parse_str(conversation_id).ok();
-    if conv_uuid.is_none() {
+    let Some(conv_uuid) = Uuid::parse_str(conversation_id).ok() else {
         return;
-    }
+    };
 
-    // Получаем всех участников конверсации
     let member_ids: Vec<String> = sqlx::query_scalar(
-        "SELECT user_id::text FROM conversation_members WHERE conversation_id = $1"
+        "SELECT user_id::text FROM conversation_members WHERE conversation_id = $1",
     )
     .bind(&conv_uuid)
     .fetch_all(pool)
     .await
     .unwrap_or_default();
 
-    // Отправляем каждому участнику КРОМЕ отправителя
-    let conns = connections.read().await;
-    for member_id in member_ids {
-        if member_id != sender_id {
-            if let Some(tx) = conns.get(&member_id) {
-                // Отправляем сообщение
-                let _ = tx.send(message_json.to_string());
-                
-                // Отправляем обновлённый список чатов
-                if let Ok(conversations) = get_user_conversations(pool, &member_id).await {
-                    if let Ok(conversations_json) = serde_json::to_string(&WsMessage::ConversationsList { conversations }) {
-                        let _ = tx.send(conversations_json);
-                    }
-                }
+    let targets: Vec<(String, Vec<tokio::sync::mpsc::UnboundedSender<String>>)> = {
+        let conns = connections.read().await;
+        member_ids
+            .into_iter()
+            .filter(|m| m != exclude_user_id)
+            .filter_map(|m| {
+                conns.get(&m).map(|entries| {
+                    let txs: Vec<_> = entries.iter().map(|(_, tx)| tx.clone()).collect();
+                    (m, txs)
+                })
+            })
+            .collect()
+    };
+
+    for (member_id, txs) in targets {
+        let conversations_json = if with_conversations_list {
+            get_user_conversations(pool, &member_id)
+                .await
+                .ok()
+                .and_then(|c| serde_json::to_string(&WsMessage::ConversationsList { conversations: c }).ok())
+        } else {
+            None
+        };
+        for tx in txs {
+            let _ = tx.send(message_json.to_string());
+            if let Some(ref json) = conversations_json {
+                let _ = tx.send(json.clone());
             }
         }
     }
@@ -1264,7 +1469,7 @@ pub async fn add_message_reaction(
         r#"
         INSERT INTO message_reactions (message_id, user_id, emoji)
         VALUES ($1, $2, $3)
-        ON CONFLICT (message_id, user_id, emoji) DO NOTHING
+        ON CONFLICT (message_id, user_id, emoji) DO UPDATE SET emoji = EXCLUDED.emoji
         RETURNING *
         "#
     )
@@ -1303,6 +1508,37 @@ pub async fn remove_message_reaction(
     Ok(())
 }
 
+/// Получить conversation_id по message_id (для broadcast реакций)
+pub async fn get_message_conversation_id(
+    pool: &PgPool,
+    message_id: &str,
+) -> Result<Option<Uuid>, sqlx::Error> {
+    let msg_uuid = Uuid::parse_str(message_id)
+        .map_err(|e| sqlx::Error::Protocol(format!("Invalid message_id: {}", e)))?;
+    sqlx::query_scalar::<_, Uuid>("SELECT conversation_id FROM messages WHERE id = $1")
+        .bind(msg_uuid)
+        .fetch_optional(pool)
+        .await
+}
+
+/// Получить все реакции для сообщений в конверсации
+pub async fn get_reactions_for_conversation(
+    pool: &PgPool,
+    conversation_id: &str,
+) -> Result<Vec<MessageReaction>, sqlx::Error> {
+    let conv_uuid = Uuid::parse_str(conversation_id)
+        .map_err(|e| sqlx::Error::Protocol(format!("Invalid conversation_id: {}", e)))?;
+    sqlx::query_as::<_, MessageReaction>(
+        "SELECT mr.* FROM message_reactions mr
+         JOIN messages m ON m.id = mr.message_id
+         WHERE m.conversation_id = $1
+         ORDER BY mr.message_id, mr.created_at",
+    )
+    .bind(conv_uuid)
+    .fetch_all(pool)
+    .await
+}
+
 /// Получить реакции на сообщение
 pub async fn get_message_reactions(
     pool: &PgPool,
@@ -1332,7 +1568,7 @@ pub async fn set_custom_contact_name(
     let contact_uuid = Uuid::parse_str(contact_user_id)
         .map_err(|e| anyhow::anyhow!("Invalid contact_user_id: {}", e))?;
     
-    sqlx::query(
+    let n = sqlx::query(
         r#"
         UPDATE messenger_contacts
         SET custom_name = $3
@@ -1343,8 +1579,13 @@ pub async fn set_custom_contact_name(
     .bind(&contact_uuid)
     .bind(&custom_name)
     .execute(pool)
-    .await?;
-    
+    .await?
+    .rows_affected();
+    if n == 0 {
+        return Err(anyhow::anyhow!(
+            "Контакт не найден. Добавьте пользователя в контакты, чтобы задать имя."
+        ));
+    }
     Ok(())
 }
 

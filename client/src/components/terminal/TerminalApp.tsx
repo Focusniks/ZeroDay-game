@@ -17,7 +17,7 @@ import {
   playWindowMinimize,
   playWindowRestore
 } from "../../lib/osSounds";
-import { useWindowFrame } from "../window/useWindowFrame";
+import { useWindowFrame } from "../../desktop/modules/WindowFrameModule";
 
 type Props = {
   user: User | null;
@@ -84,6 +84,11 @@ export function TerminalApp({
     defaultSize: { w: 1080, h: 700 },
     minSize: { w: 320, h: 220 }
   });
+
+  const maximizedRef = useRef(maximized);
+  useEffect(() => {
+    maximizedRef.current = maximized;
+  }, [maximized]);
 
   useEffect(() => {
     setLines([]);
@@ -524,6 +529,7 @@ export function TerminalApp({
             aria-label="close"
             className="h-3 w-3 rounded-full bg-[#ff5f57] hover:opacity-90"
             onMouseDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={() => {
               playWindowClose();
               onClose();
@@ -534,6 +540,7 @@ export function TerminalApp({
             aria-label="minimize"
             className="h-3 w-3 rounded-full bg-[#febc2e] hover:opacity-90"
             onMouseDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={() => {
               playWindowMinimize();
               onMinimize();
@@ -544,8 +551,9 @@ export function TerminalApp({
             aria-label="maximize"
             className="h-3 w-3 rounded-full bg-[#28c840] hover:opacity-90"
             onMouseDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={() => {
-              if (maximized) playWindowRestore();
+              if (maximizedRef.current) playWindowRestore();
               else playWindowMaximize();
               toggleMaximize();
             }}

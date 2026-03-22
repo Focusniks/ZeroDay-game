@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { GameLanguage } from "../../lib/gameConfig";
-import { useWindowFrame } from "../window/useWindowFrame";
+import { useWindowFrame } from "../../desktop/modules/WindowFrameModule";
 import { playWindowClose, playWindowMaximize, playWindowMinimize, playWindowRestore } from "../../lib/osSounds";
 import { themeIconUrl } from "../../lib/themeIcons";
 import type { FsEntry } from "../../lib/gameFs";
@@ -79,15 +79,20 @@ export function CodeEditorApp({
     minSize: { w: 400, h: 300 }
   });
 
+  const maximizedRef = useRef(maximized);
+  useEffect(() => {
+    maximizedRef.current = maximized;
+  }, [maximized]);
+
   const [maximizedTick, setMaximizedTick] = useState(0);
   const [resizingTick, setResizingTick] = useState(0);
 
   const onToggleMaximize = useCallback(() => {
-    if (maximized) playWindowRestore();
+    if (maximizedRef.current) playWindowRestore();
     else playWindowMaximize();
     toggleMaximize();
     setMaximizedTick((v) => v + 1);
-  }, [maximized, toggleMaximize]);
+  }, [toggleMaximize]);
 
   // Syntax highlighting
   const highlightSyntax = useCallback((source: string) => {
@@ -584,9 +589,9 @@ export function CodeEditorApp({
         onPointerDown={(e) => startDrag(e, e.currentTarget)}
       >
         <div className="flex items-center gap-2">
-          <button type="button" className="h-3 w-3 rounded-full bg-[#ff5f57] hover:opacity-90" onClick={() => { playWindowClose(); onClose(); }} />
-          <button type="button" className="h-3 w-3 rounded-full bg-[#febc2e] hover:opacity-90" onClick={() => { playWindowMinimize(); onMinimize(); }} />
-          <button type="button" className="h-3 w-3 rounded-full bg-[#28c840] hover:opacity-90" onClick={onToggleMaximize} />
+          <button type="button" className="h-3 w-3 rounded-full bg-[#ff5f57] hover:opacity-90" onMouseDown={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()} onClick={() => { playWindowClose(); onClose(); }} />
+          <button type="button" className="h-3 w-3 rounded-full bg-[#febc2e] hover:opacity-90" onMouseDown={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()} onClick={() => { playWindowMinimize(); onMinimize(); }} />
+          <button type="button" className="h-3 w-3 rounded-full bg-[#28c840] hover:opacity-90" onMouseDown={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()} onClick={onToggleMaximize} />
         </div>
         <div className="flex items-center gap-2">
           <img src={themeIconUrl("scripts.svg")} alt="" className="w-4 h-4" />

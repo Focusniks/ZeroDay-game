@@ -57,6 +57,17 @@ import { getGameStrings } from "../lib/i18n/gameStrings";
 import { playDesktopLogin, playDesktopLogout, playTrashEmpty } from "../lib/osSounds";
 import { breezePlaceUrl, themeIconUrl } from "../lib/themeIcons";
 
+// Desktop Modules - миigration с локального кода на модульную систему
+import {
+  Taskbar,
+  useNotifications,
+  NotificationContainer,
+  notificationManager,
+  eventBus,
+  DesktopEvents,
+  type TaskbarWindowEntry,
+} from "../desktop/modules";
+
 /** Содержимое этой папки в игровой ФС отображается как иконки на рабочем столе (создаётся в fs_init). */
 const GAME_DESKTOP_FOLDER_REL = "Desktop";
 
@@ -624,13 +635,10 @@ export function DashboardPage() {
   const navigate = useNavigate();
   const { config, patchConfig } = useGameConfig();
 
-  const [toasts, setToasts] = useState<Array<{ id: string; message: string }>>([]);
+  // Используем NotificationModule вместо локальных toasts
+  const { notifications, dismiss } = useNotifications();
   const addToast = useCallback((message: string) => {
-    const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    setToasts((prev) => [...prev, { id, message }]);
-    window.setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 2600);
+    notificationManager.show({ title: '', message, duration: 2600 });
   }, []);
 
   const [terminalOpen, setTerminalOpen] = useState(false);
@@ -708,14 +716,14 @@ export function DashboardPage() {
     ? `url(${customWallpaperDataUrl}) center/cover no-repeat, ${builtinWallpaperBackground}`
     : builtinWallpaperBackground;
 
-  // Network state
-  const [isNetworkConnected, setIsNetworkConnected] = useState(false);
-  const [isNetworkConnecting, setIsNetworkConnecting] = useState(false);
+  // Network state — полностью определяется WebSocket (сеть онлайн только при открытом WS)
+  const isNetworkConnected = wsState === "open";
+  const isNetworkConnecting = wsState === "connecting";
   const [networkBandwidth, setNetworkBandwidth] = useState(0);
   const [networkPopoverOpen, setNetworkPopoverOpen] = useState(false);
   const networkPopoverRef = useRef<HTMLDivElement | null>(null);
 
-  // Симуляция изменения пропускной способности
+  // Симуляция изменения пропускной способности (только когда сеть подключена)
   useEffect(() => {
     if (!isNetworkConnected) {
       setNetworkBandwidth(0);
@@ -732,18 +740,6 @@ export function DashboardPage() {
 
     return () => window.clearInterval(interval);
   }, [isNetworkConnected]);
-
-  const toggleNetworkConnection = () => {
-    if (isNetworkConnected) {
-      setIsNetworkConnected(false);
-    } else {
-      setIsNetworkConnecting(true);
-      setTimeout(() => {
-        setIsNetworkConnecting(false);
-        setIsNetworkConnected(true);
-      }, 1500);
-    }
-  };
 
   const netIsConnected = wsState === "open";
   const netIsConnecting = wsState === "connecting";
@@ -1915,6 +1911,41 @@ export function DashboardPage() {
         className="game-ui relative min-h-screen text-slate-100"
         onContextMenu={openDesktopContextMenu}
       >
+      {/* Maintenance banner when WebSocket unavailable */}
+      {wsState !== "open" ? (
+        <div
+          className="fixed right-3 top-3 z-[1100] flex max-w-[min(100vw-1.5rem,20rem)] items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium backdrop-blur-xl"
+          style={{
+            backgroundColor: "rgba(234, 179, 8, 0.06)",
+            color: "#fafaf9",
+            textShadow: "0 0 12px rgba(0,0,0,0.85), 0 1px 3px rgba(0,0,0,0.95)",
+            boxShadow: "0 1px 0 rgba(255, 255, 255, 0.35) inset, 0 0 0 1px rgba(234, 179, 8, 0.25)"
+          }}
+        >
+          <svg
+            className="h-4 w-4 shrink-0"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+            style={{ filter: "drop-shadow(0 0 6px rgba(0,0,0,0.9)) drop-shadow(0 1px 2px rgba(0,0,0,0.95))" }}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          <span>
+            {lang === "ru" ? "Идут технические работы. " : "Maintenance in progress. "}
+            <a
+              href="https://t.me/zerodaynetwork"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline decoration-amber-200/90 underline-offset-2 hover:text-amber-100"
+            >
+              t.me/zerodaynetwork
+            </a>
+          </span>
+        </div>
+      ) : null}
+
       {/* Desktop taskbar */}
       <div className="taskbar taskbar-shell">
         <div className="taskbar-zone-left">
@@ -2326,7 +2357,6 @@ export function DashboardPage() {
                 isConnecting={isNetworkConnecting}
                 bandwidth={networkBandwidth}
                 userIpAddress={user?.ip_address || null}
-                onToggleConnection={toggleNetworkConnection}
                 lang={lang}
               />
             </div>
@@ -3054,16 +3084,12 @@ export function DashboardPage() {
         }}
       />
 
-      {/* In-game notifications */}
-      {toasts.length ? (
-        <div className="game-toasts">
-          {toasts.map((t) => (
-            <div key={t.id} className="game-toast">
-              {t.message}
-            </div>
-          ))}
-        </div>
-      ) : null}
+      {/* In-game notifications - using NotificationModule */}
+      <NotificationContainer
+        notifications={notifications}
+        onDismiss={dismiss}
+        position="top-right"
+      />
 
       <div className="window-stage">
         {/* Settings app windows */}

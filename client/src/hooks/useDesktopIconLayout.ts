@@ -12,9 +12,9 @@ import {
 export const DESKTOP_COMPUTER_CELL_KEY = "__desktop_computer__";
 export const DESKTOP_TRASH_CELL_KEY = "__desktop_trash__";
 
-// Left edge of the desktop icon grid (0 means icons can reach the very left corner).
-const DESK_LEFT = 0;
-const DESK_TOP = 0;
+// Inset from left/top so icons don’t sit flush against the screen edge (right/bottom unchanged).
+const DESK_LEFT = 16;
+const DESK_TOP = 16;
 const DESK_RIGHT_PAD = 0;
 const DESK_BOTTOM_PAD = 0;
 const TASKBAR_H = 48;

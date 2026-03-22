@@ -18,7 +18,7 @@ import {
   playWindowMinimize,
   playWindowRestore
 } from "../../lib/osSounds";
-import { useWindowFrame } from "../window/useWindowFrame";
+import { useWindowFrame } from "../../desktop/modules/WindowFrameModule";
 import { themeIconUrl } from "../../lib/themeIcons";
 import { resolveGameTimeZone, formatZonedTime } from "../../lib/zonedClock";
 
@@ -122,11 +122,16 @@ export function SettingsApp({
     minSize: { w: 320, h: 220 }
   });
 
+  const maximizedRef = useRef(maximized);
+  useEffect(() => {
+    maximizedRef.current = maximized;
+  }, [maximized]);
+
   const [maximizedTick, setMaximizedTick] = useState(0);
   const [resizingTick, setResizingTick] = useState(0);
 
   const onToggleMaximize = () => {
-    if (maximized) playWindowRestore();
+    if (maximizedRef.current) playWindowRestore();
     else playWindowMaximize();
     toggleMaximize();
     setMaximizedTick((v) => v + 1);
@@ -272,6 +277,7 @@ export function SettingsApp({
             aria-label="close"
             className="h-3 w-3 rounded-full bg-[#ff5f57] hover:opacity-90"
             onMouseDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={() => {
               playWindowClose();
               onClose();
@@ -282,6 +288,7 @@ export function SettingsApp({
             aria-label="minimize"
             className="h-3 w-3 rounded-full bg-[#febc2e] hover:opacity-90"
             onMouseDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={() => {
               playWindowMinimize();
               onMinimize();
@@ -292,6 +299,7 @@ export function SettingsApp({
             aria-label="maximize"
             className="h-3 w-3 rounded-full bg-[#28c840] hover:opacity-90"
             onMouseDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={onToggleMaximize}
           />
         </div>

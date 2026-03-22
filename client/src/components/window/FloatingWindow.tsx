@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useEffect, useRef } from "react";
 import type { GameLanguage } from "../../lib/gameConfig";
 import {
   playWindowClose,
@@ -6,7 +7,7 @@ import {
   playWindowMinimize,
   playWindowRestore
 } from "../../lib/osSounds";
-import { useWindowFrame } from "./useWindowFrame";
+import { useWindowFrame, type WindowRect } from "../../desktop/modules/WindowFrameModule";
 
 type Props = {
   lang?: GameLanguage;
@@ -31,8 +32,13 @@ export function FloatingWindow({
 }: Props) {
   const { rect, maximized, startDrag, startResize, toggleMaximize } = useWindowFrame({
     defaultSize: { w: 900, h: 700 },
-    minSize: { w: 320, h: 220 }
+    minSize: { w: 320, h: 220 },
   });
+
+  const maximizedRef = useRef(maximized);
+  useEffect(() => {
+    maximizedRef.current = maximized;
+  }, [maximized]);
 
   return (
     <div
@@ -59,6 +65,7 @@ export function FloatingWindow({
             aria-label="close"
             className="h-3 w-3 rounded-full bg-[#ff5f57] hover:opacity-90"
             onMouseDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={() => {
               playWindowClose();
               onClose();
@@ -69,6 +76,7 @@ export function FloatingWindow({
             aria-label="minimize"
             className="h-3 w-3 rounded-full bg-[#febc2e] hover:opacity-90"
             onMouseDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={() => {
               playWindowMinimize();
               onMinimize();
@@ -79,8 +87,9 @@ export function FloatingWindow({
             aria-label="maximize"
             className="h-3 w-3 rounded-full bg-[#28c840] hover:opacity-90"
             onMouseDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={() => {
-              if (maximized) playWindowRestore();
+              if (maximizedRef.current) playWindowRestore();
               else playWindowMaximize();
               toggleMaximize();
             }}

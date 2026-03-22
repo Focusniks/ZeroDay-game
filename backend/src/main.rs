@@ -3,13 +3,14 @@ use actix_web::{middleware::Logger, web, App, HttpRequest, HttpResponse, HttpSer
 use dotenvy::dotenv;
 use log::info;
 use serde::{Deserialize, Serialize};
-use sqlx::{Postgres, QueryBuilder, Row};
+use sqlx::{Postgres, QueryBuilder};
 use sqlx::PgPool;
 use std::env;
 use std::path::Path;
 use uuid::Uuid;
 use zeroday_backend::{auth, browser, db, websocket, fs_online, sites, messenger};
 use zeroday_backend::auth::User as AuthUser;
+use zeroday_backend::middleware::{RateLimiter, extract_client_ip};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -17,6 +18,19 @@ use tokio::sync::RwLock;
 struct AppState {
     pool: PgPool,
     jwt_secret: String,
+    rate_limiter: RateLimiter,
+}
+
+/// Каталог сайтов браузера (нужен зарегистрированный `web::Data<PgPool>`).
+async fn browser_catalog_sites(pool: web::Data<PgPool>) -> impl Responder {
+    browser::get_sites(pool.get_ref()).await
+}
+
+async fn browser_catalog_search(
+    pool: web::Data<PgPool>,
+    query: web::Query<browser::SearchQuery>,
+) -> impl Responder {
+    browser::search_sites(pool.get_ref(), query).await
 }
 
 async fn health() -> impl Responder {
@@ -220,7 +234,19 @@ fn user_id_from_request(req: &HttpRequest, jwt_secret: &str) -> Result<String, a
         .map_err(|_| ErrorUnauthorized("Invalid JWT token"))
 }
 
-async fn register_http(state: web::Data<AppState>, payload: web::Json<RegisterPayload>) -> impl Responder {
+async fn register_http(state: web::Data<AppState>, req: HttpRequest, payload: web::Json<RegisterPayload>) -> impl Responder {
+    // Apply rate limiting based on client IP to prevent spam registration
+    let client_ip = extract_client_ip(&req);
+    if !state.rate_limiter.check(&client_ip).await {
+        let retry_after = state.rate_limiter.reset_in(&client_ip).await.unwrap_or(60);
+        return HttpResponse::TooManyRequests()
+            .insert_header(("Retry-After", retry_after.to_string()))
+            .json(serde_json::json!({
+                "ok": false,
+                "error": format!("Too many registration attempts. Please try again in {} seconds.", retry_after)
+            }));
+    }
+
     match auth::register_user(
         &state.pool,
         &state.jwt_secret,
@@ -242,7 +268,19 @@ async fn register_http(state: web::Data<AppState>, payload: web::Json<RegisterPa
     }
 }
 
-async fn login_http(state: web::Data<AppState>, payload: web::Json<LoginPayload>) -> impl Responder {
+async fn login_http(state: web::Data<AppState>, req: HttpRequest, payload: web::Json<LoginPayload>) -> impl Responder {
+    // Apply rate limiting based on client IP
+    let client_ip = extract_client_ip(&req);
+    if !state.rate_limiter.check(&client_ip).await {
+        let retry_after = state.rate_limiter.reset_in(&client_ip).await.unwrap_or(60);
+        return HttpResponse::TooManyRequests()
+            .insert_header(("Retry-After", retry_after.to_string()))
+            .json(serde_json::json!({
+                "ok": false,
+                "error": format!("Too many login attempts. Please try again in {} seconds.", retry_after)
+            }));
+    }
+
     match auth::login_user(&state.pool, &state.jwt_secret, &payload.login, &payload.password).await {
         Ok((token, user)) => HttpResponse::Ok().json(serde_json::json!({
             "ok": true,
@@ -410,6 +448,10 @@ async fn list_lots_http(state: web::Data<AppState>, query: web::Query<Marketplac
         .build_query_scalar::<i64>()
         .fetch_one(&state.pool)
         .await
+        .map_err(|e| {
+            log::warn!("Failed to fetch total lots count: {}", e);
+            e
+        })
         .unwrap_or(0);
 
     match rows {
@@ -506,6 +548,10 @@ async fn my_lots_http(
         .build_query_scalar::<i64>()
         .fetch_one(&state.pool)
         .await
+        .map_err(|e| {
+            log::warn!("Failed to fetch my lots count for user {}: {}", user_id, e);
+            e
+        })
         .unwrap_or(0);
 
     match rows {
@@ -615,6 +661,10 @@ async fn my_deals_http(
         .build_query_scalar::<i64>()
         .fetch_one(&state.pool)
         .await
+        .map_err(|e| {
+            log::warn!("Failed to fetch deals count for user {}: {}", user_id, e);
+            e
+        })
         .unwrap_or(0);
 
     match rows {
@@ -1040,6 +1090,37 @@ async fn delete_bookmark(
     browser::delete_bookmark(&state.pool, user_uuid, bookmark_id.into_inner()).await
 }
 
+async fn update_bookmark_http(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    bookmark_id: web::Path<Uuid>,
+    payload: web::Json<browser::UpdateBookmarkPayload>,
+) -> HttpResponse {
+    let user_id = match user_id_from_request(&req, &state.jwt_secret) {
+        Ok(id) => id,
+        Err(_) => {
+            return HttpResponse::Unauthorized().json(serde_json::json!({
+                "error": "Unauthorized"
+            }))
+        }
+    };
+    let user_uuid = match Uuid::parse_str(&user_id) {
+        Ok(v) => v,
+        Err(_) => {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "error": "Invalid user id"
+            }))
+        }
+    };
+    browser::update_bookmark(
+        &state.pool,
+        user_uuid,
+        bookmark_id.into_inner(),
+        payload.into_inner(),
+    )
+    .await
+}
+
 async fn get_settings(
     state: web::Data<AppState>,
     req: HttpRequest,
@@ -1077,6 +1158,86 @@ async fn update_settings(
         }))
     };
     browser::update_settings(&state.pool, user_uuid, payload.into_inner()).await
+}
+
+async fn append_history_http(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    payload: web::Json<browser::AppendHistoryPayload>,
+) -> HttpResponse {
+    let user_id = match user_id_from_request(&req, &state.jwt_secret) {
+        Ok(id) => id,
+        Err(_) => {
+            return HttpResponse::Unauthorized().json(serde_json::json!({ "error": "Unauthorized" }))
+        }
+    };
+    let user_uuid = match Uuid::parse_str(&user_id) {
+        Ok(v) => v,
+        Err(_) => {
+            return HttpResponse::BadRequest().json(serde_json::json!({ "error": "Invalid user id" }))
+        }
+    };
+    browser::append_history(&state.pool, user_uuid, payload.into_inner()).await
+}
+
+async fn list_history_http(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    query: web::Query<browser::HistoryListQuery>,
+) -> HttpResponse {
+    let user_id = match user_id_from_request(&req, &state.jwt_secret) {
+        Ok(id) => id,
+        Err(_) => {
+            return HttpResponse::Unauthorized().json(serde_json::json!({ "error": "Unauthorized" }))
+        }
+    };
+    let user_uuid = match Uuid::parse_str(&user_id) {
+        Ok(v) => v,
+        Err(_) => {
+            return HttpResponse::BadRequest().json(serde_json::json!({ "error": "Invalid user id" }))
+        }
+    };
+    browser::list_history(&state.pool, user_uuid, query).await
+}
+
+async fn delete_history_entry_http(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    entry_id: web::Path<Uuid>,
+) -> HttpResponse {
+    let user_id = match user_id_from_request(&req, &state.jwt_secret) {
+        Ok(id) => id,
+        Err(_) => {
+            return HttpResponse::Unauthorized().json(serde_json::json!({ "error": "Unauthorized" }))
+        }
+    };
+    let user_uuid = match Uuid::parse_str(&user_id) {
+        Ok(v) => v,
+        Err(_) => {
+            return HttpResponse::BadRequest().json(serde_json::json!({ "error": "Invalid user id" }))
+        }
+    };
+    browser::delete_history_entry(&state.pool, user_uuid, entry_id.into_inner()).await
+}
+
+async fn clear_history_http(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    query: web::Query<browser::ClearHistoryQuery>,
+) -> HttpResponse {
+    let user_id = match user_id_from_request(&req, &state.jwt_secret) {
+        Ok(id) => id,
+        Err(_) => {
+            return HttpResponse::Unauthorized().json(serde_json::json!({ "error": "Unauthorized" }))
+        }
+    };
+    let user_uuid = match Uuid::parse_str(&user_id) {
+        Ok(v) => v,
+        Err(_) => {
+            return HttpResponse::BadRequest().json(serde_json::json!({ "error": "Invalid user id" }))
+        }
+    };
+    browser::clear_history(&state.pool, user_uuid, query).await
 }
 
 // Sites API handlers
@@ -1756,6 +1917,8 @@ async fn main() -> anyhow::Result<()> {
     let web_origin = env::var("WEB_ORIGIN").unwrap_or_else(|_| "http://localhost:3000".to_string());
 
     let pool = db::create_pool(&database_url).await?;
+    // Отдельно от `AppState`: обработчики с `web::Data<PgPool>` (fs_online, /debug/db, каталог браузера).
+    let pool_data = web::Data::new(pool.clone());
 
     info!("DB connected");
 
@@ -1770,9 +1933,12 @@ async fn main() -> anyhow::Result<()> {
         tokio::spawn(async move { websocket::run_ws_server(&ws_host, ws_port, ws_pool, ws_secret, connections).await })
     };
 
+    let rate_limiter = RateLimiter::for_auth();
+    
     let state = web::Data::new(AppState {
         pool,
         jwt_secret: jwt_secret.clone(),
+        rate_limiter,
     });
 
     // Разрешаем все origins для разработки или указываем конкретные
@@ -1796,6 +1962,7 @@ async fn main() -> anyhow::Result<()> {
             .max_age(3600);
         App::new()
             .app_data(state.clone())
+            .app_data(pool_data.clone())
             .wrap(cors)
             .wrap(Logger::default())
             .route("/health", web::get().to(health))
@@ -1812,13 +1979,18 @@ async fn main() -> anyhow::Result<()> {
             .route("/marketplace/lots/{lot_id}/thread", web::get().to(get_thread_http))
             .route("/marketplace/lots/{lot_id}/messages", web::post().to(send_message_http))
             // Browser API
-            .route("/api/browser/sites", web::get().to(browser::get_sites))
-            .route("/api/browser/search", web::get().to(browser::search_sites))
+            .route("/api/browser/sites", web::get().to(browser_catalog_sites))
+            .route("/api/browser/search", web::get().to(browser_catalog_search))
             .route("/api/browser/bookmarks", web::get().to(get_bookmarks))
             .route("/api/browser/bookmarks", web::post().to(create_bookmark))
             .route("/api/browser/bookmarks/{bookmark_id}", web::delete().to(delete_bookmark))
+            .route("/api/browser/bookmarks/{bookmark_id}", web::put().to(update_bookmark_http))
             .route("/api/browser/settings", web::get().to(get_settings))
             .route("/api/browser/settings", web::put().to(update_settings))
+            .route("/api/browser/history/{entry_id}", web::delete().to(delete_history_entry_http))
+            .route("/api/browser/history", web::delete().to(clear_history_http))
+            .route("/api/browser/history", web::get().to(list_history_http))
+            .route("/api/browser/history", web::post().to(append_history_http))
             // Sites - прямая раздача статических файлов (для iframe в браузере)
             .route("/sites/{site_name}/{file_path:.*}", web::get().to(get_site_file_http))
             .route("/sites/{site_name}", web::get().to(|site_name: web::Path<String>| async move {

@@ -18,8 +18,11 @@ use uuid::Uuid;
 use crate::auth::{self, User};
 use crate::messenger;
 
-/// Глобальное хранилище активных WebSocket подключений
-pub type SharedConnections = Arc<RwLock<HashMap<String, mpsc::UnboundedSender<String>>>>;
+/// Запись подключения (id для удаления при закрытии)
+type ConnEntry = (Uuid, mpsc::UnboundedSender<String>);
+
+/// Глобальное хранилище активных WebSocket подключений (несколько соединений на пользователя)
+pub type SharedConnections = Arc<RwLock<HashMap<String, Vec<ConnEntry>>>>;
 
 /// Данные файла для отправки через WebSocket
 #[derive(Serialize, Deserialize, Clone)]
@@ -67,6 +70,9 @@ pub enum WsMessage {
         limit: Option<i32>,
         before: Option<String>,
     },
+    GetReactionsForConversation {
+        conversation_id: String,
+    },
     SendMessage {
         conversation_id: String,
         content: String,
@@ -85,6 +91,21 @@ pub enum WsMessage {
     },
     TypingStop {
         conversation_id: String,
+    },
+    AddReaction {
+        message_id: String,
+        emoji: String,
+    },
+    RemoveReaction {
+        message_id: String,
+        emoji: String,
+    },
+    DeleteMessage {
+        message_id: String,
+    },
+    EditMessage {
+        message_id: String,
+        content: String,
     },
 
     // Profile & Contacts
@@ -113,6 +134,9 @@ pub enum WsMessage {
         receiver_messenger_id: String,
     },
     GetFriendRequests,
+    CancelFriendRequest {
+        request_id: String,
+    },
     RespondToFriendRequest {
         request_id: String,
         accept: bool,
@@ -148,10 +172,21 @@ pub enum WsMessage {
         messages: Vec<messenger::Message>,
         has_more: bool,
     },
+    ReactionsForConversation {
+        conversation_id: String,
+        reactions: Vec<messenger::MessageReaction>,
+    },
     MessageSent {
         message: messenger::Message,
     },
     MessageReceived {
+        message: messenger::Message,
+    },
+    MessageDeleted {
+        message_id: String,
+        conversation_id: String,
+    },
+    MessageUpdated {
         message: messenger::Message,
     },
     MessageRead {
@@ -184,6 +219,8 @@ pub enum WsMessage {
     },
     FriendRequestsList {
         requests: Vec<messenger::FriendRequest>,
+        #[serde(default)]
+        outgoing: Vec<messenger::OutgoingFriendRequest>,
     },
     FriendRequestSent {
         request: messenger::FriendRequest,
@@ -191,6 +228,9 @@ pub enum WsMessage {
     FriendRequestResponded {
         request_id: String,
         accepted: bool,
+    },
+    FriendRequestCancelled {
+        request_id: String,
     },
     // Онлайн статус (новое)
     OnlineStatus {
@@ -207,6 +247,7 @@ pub enum WsMessage {
     ReactionRemoved {
         message_id: String,
         emoji: String,
+        user_id: String,
     },
 
     // Common responses
@@ -323,6 +364,7 @@ async fn handle_connection(
     // Отправляем приветственное сообщение
     tx.send(r#"{"type":"welcome","message":"connected"}"#.to_string()).ok();
 
+    let conn_id = Uuid::new_v4();
     let mut current_user: Option<User> = None;
 
     while let Some(msg) = read.next().await {
@@ -340,10 +382,10 @@ async fn handle_connection(
                     }) => match auth::register_user(&pool, &jwt_secret, &username, &email, &password).await {
                         Ok((token, user)) => {
                             current_user = Some(user.clone());
-                            // Регистрируем подключение
+                            // Регистрируем подключение (добавляем к списку, не заменяем)
                             if let Some(ref u) = current_user {
                                 let mut conns = connections.write().await;
-                                conns.insert(u.id.clone(), tx.clone());
+                                conns.entry(u.id.clone()).or_default().push((conn_id, tx.clone()));
                                 info!("User {} registered and connected", u.username);
                             }
                             WsMessage::AuthSuccess { token, user }
@@ -356,10 +398,10 @@ async fn handle_connection(
                         match auth::login_user(&pool, &jwt_secret, &email, &password).await {
                             Ok((token, user)) => {
                                 current_user = Some(user.clone());
-                                // Регистрируем подключение
+                                // Регистрируем подключение (добавляем к списку, не заменяем)
                                 if let Some(ref u) = current_user {
                                     let mut conns = connections.write().await;
-                                    conns.insert(u.id.clone(), tx.clone());
+                                    conns.entry(u.id.clone()).or_default().push((conn_id, tx.clone()));
                                     info!("User {} logged in and connected", u.username);
                                 }
                                 WsMessage::AuthSuccess { token, user }
@@ -373,10 +415,10 @@ async fn handle_connection(
                         match auth::authorize_user(&pool, &jwt_secret, &token).await {
                             Ok(user) => {
                                 current_user = Some(user.clone());
-                                // Регистрируем подключение
+                                // Регистрируем подключение (добавляем к списку, не заменяем)
                                 if let Some(ref u) = current_user {
                                     let mut conns = connections.write().await;
-                                    conns.insert(u.id.clone(), tx.clone());
+                                    conns.entry(u.id.clone()).or_default().push((conn_id, tx.clone()));
                                     info!("User {} authorized", u.username);
                                 }
                                 WsMessage::AuthSuccess {
@@ -450,20 +492,21 @@ async fn handle_connection(
                         match current_user {
                             Some(ref user) => {
                                 let limit_val = limit.unwrap_or(50);
-                                let before_ts = before.and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
+                                let before_ts = before
+                                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
                                     .map(|dt| dt.with_timezone(&chrono::Utc));
 
-                                log::info!("GetMessages for user {} conversation {} limit {}", user.id, conversation_id, limit_val);
+                                log::debug!("GetMessages for user {} conversation {} limit {}", user.id, conversation_id, limit_val);
 
                                 match messenger::fetch_conversation_messages(
                                     &pool,
                                     &conversation_id,
                                     &user.id,
                                     limit_val,
+                                    before_ts,
                                 ).await {
                                     Ok(messages) => {
                                         let has_more = messages.len() as i32 >= limit_val;
-                                        log::info!("Loaded {} messages", messages.len());
                                         WsMessage::MessagesList { messages, has_more }
                                     },
                                     Err(e) => {
@@ -475,6 +518,26 @@ async fn handle_connection(
                                     },
                                 }
                             },
+                            None => WsMessage::Error {
+                                code: "not_authorized".to_string(),
+                                message: "Требуется авторизация".to_string(),
+                            },
+                        }
+                    }
+                    Ok(WsMessage::GetReactionsForConversation { conversation_id }) => {
+                        match current_user {
+                            Some(_) => {
+                                match messenger::get_reactions_for_conversation(&pool, &conversation_id).await {
+                                    Ok(reactions) => WsMessage::ReactionsForConversation {
+                                        conversation_id: conversation_id.clone(),
+                                        reactions,
+                                    },
+                                    Err(_) => WsMessage::ReactionsForConversation {
+                                        conversation_id: conversation_id.clone(),
+                                        reactions: vec![],
+                                    },
+                                }
+                            }
                             None => WsMessage::Error {
                                 code: "not_authorized".to_string(),
                                 message: "Требуется авторизация".to_string(),
@@ -536,6 +599,7 @@ async fn handle_connection(
                                             &pool,
                                             &msg_json,
                                             &user.id,
+                                            false,
                                         ).await;
 
                                         // Отправляем отправителю подтверждение + обновлённый список чатов
@@ -599,6 +663,7 @@ async fn handle_connection(
                                     &pool,
                                     &typing_json,
                                     &user.id,
+                                    false,
                                 ).await;
 
                                 continue; // Не отправляем ответ отправителю
@@ -623,10 +688,175 @@ async fn handle_connection(
                                     &pool,
                                     &stop_typing_json,
                                     &user.id,
+                                    false,
                                 ).await;
 
                                 continue; // Не отправляем ответ отправителю
                             },
+                            None => WsMessage::Error {
+                                code: "not_authorized".to_string(),
+                                message: "Требуется авторизация".to_string(),
+                            },
+                        }
+                    }
+                    Ok(WsMessage::AddReaction { message_id, emoji }) => {
+                        match current_user {
+                            Some(ref user) => {
+                                match messenger::add_message_reaction(&pool, &message_id, &user.id, &emoji).await {
+                                    Ok(reaction) => {
+                                        if let Ok(Some(conv_id)) =
+                                            messenger::get_message_conversation_id(&pool, &message_id).await
+                                        {
+                                            let json = serde_json::to_string(&WsMessage::ReactionAdded {
+                                                reaction: reaction.clone(),
+                                            })
+                                            .unwrap_or_default();
+                                            messenger::broadcast_to_conversation(
+                                                &connections,
+                                                &conv_id.to_string(),
+                                                &pool,
+                                                &json,
+                                                &user.id,
+                                                false,
+                                            )
+                                            .await;
+                                        }
+                                        WsMessage::ReactionAdded { reaction }
+                                    }
+                                    Err(e) => WsMessage::Error {
+                                        code: "reaction_error".to_string(),
+                                        message: e.to_string(),
+                                    },
+                                }
+                            }
+                            None => WsMessage::Error {
+                                code: "not_authorized".to_string(),
+                                message: "Требуется авторизация".to_string(),
+                            },
+                        }
+                    }
+                    Ok(WsMessage::RemoveReaction { message_id, emoji }) => {
+                        match current_user {
+                            Some(ref user) => {
+                                match messenger::remove_message_reaction(&pool, &message_id, &user.id, &emoji).await {
+                                    Ok(()) => {
+                                        if let Ok(Some(conv_id)) =
+                                            messenger::get_message_conversation_id(&pool, &message_id).await
+                                        {
+                                            let json = serde_json::to_string(&WsMessage::ReactionRemoved {
+                                                message_id: message_id.clone(),
+                                                emoji: emoji.clone(),
+                                                user_id: user.id.clone(),
+                                            })
+                                            .unwrap_or_default();
+                                            messenger::broadcast_to_conversation(
+                                                &connections,
+                                                &conv_id.to_string(),
+                                                &pool,
+                                                &json,
+                                                &user.id,
+                                                false,
+                                            )
+                                            .await;
+                                        }
+                                        WsMessage::ReactionRemoved {
+                                            message_id,
+                                            emoji,
+                                            user_id: user.id.clone(),
+                                        }
+                                    }
+                                    Err(e) => WsMessage::Error {
+                                        code: "reaction_error".to_string(),
+                                        message: e.to_string(),
+                                    },
+                                }
+                            }
+                            None => WsMessage::Error {
+                                code: "not_authorized".to_string(),
+                                message: "Требуется авторизация".to_string(),
+                            },
+                        }
+                    }
+                    Ok(WsMessage::DeleteMessage { message_id }) => {
+                        match current_user {
+                            Some(ref user) => {
+                                match messenger::soft_delete_message(&pool, &message_id, &user.id).await {
+                                    Ok(Some(conv_id)) => {
+                                        let conv_str = conv_id.to_string();
+                                        let json = serde_json::to_string(&WsMessage::MessageDeleted {
+                                            message_id: message_id.clone(),
+                                            conversation_id: conv_str.clone(),
+                                        })
+                                        .unwrap_or_default();
+                                        messenger::broadcast_to_conversation(
+                                            &connections,
+                                            &conv_str,
+                                            &pool,
+                                            &json,
+                                            &user.id,
+                                            false,
+                                        )
+                                        .await;
+                                        WsMessage::MessageDeleted {
+                                            message_id,
+                                            conversation_id: conv_str,
+                                        }
+                                    }
+                                    Ok(None) => WsMessage::Error {
+                                        code: "delete_error".to_string(),
+                                        message: "Сообщение не найдено или нет прав".to_string(),
+                                    },
+                                    Err(e) => WsMessage::Error {
+                                        code: "delete_error".to_string(),
+                                        message: e.to_string(),
+                                    },
+                                }
+                            }
+                            None => WsMessage::Error {
+                                code: "not_authorized".to_string(),
+                                message: "Требуется авторизация".to_string(),
+                            },
+                        }
+                    }
+                    Ok(WsMessage::EditMessage { message_id, content }) => {
+                        match current_user {
+                            Some(ref user) => {
+                                match messenger::edit_message_content(
+                                    &pool,
+                                    &message_id,
+                                    &user.id,
+                                    &content,
+                                    &user.id,
+                                )
+                                .await
+                                {
+                                    Ok(Some(message)) => {
+                                        let conv_str = message.conversation_id.to_string();
+                                        let json = serde_json::to_string(&WsMessage::MessageUpdated {
+                                            message: message.clone(),
+                                        })
+                                        .unwrap_or_default();
+                                        messenger::broadcast_to_conversation(
+                                            &connections,
+                                            &conv_str,
+                                            &pool,
+                                            &json,
+                                            &user.id,
+                                            false,
+                                        )
+                                        .await;
+                                        WsMessage::MessageUpdated { message }
+                                    }
+                                    Ok(None) => WsMessage::Error {
+                                        code: "edit_error".to_string(),
+                                        message: "Не удалось сохранить изменения".to_string(),
+                                    },
+                                    Err(e) => WsMessage::Error {
+                                        code: "edit_error".to_string(),
+                                        message: e.to_string(),
+                                    },
+                                }
+                            }
                             None => WsMessage::Error {
                                 code: "not_authorized".to_string(),
                                 message: "Требуется авторизация".to_string(),
@@ -723,10 +953,44 @@ async fn handle_connection(
                     Ok(WsMessage::GetFriendRequests) => {
                         match current_user {
                             Some(ref user) => {
-                                match messenger::get_incoming_friend_requests(&pool, &user.id).await {
-                                    Ok(requests) => WsMessage::FriendRequestsList { requests },
-                                    Err(e) => WsMessage::Error {
+                                match (
+                                    messenger::get_incoming_friend_requests(&pool, &user.id).await,
+                                    messenger::get_outgoing_friend_requests(&pool, &user.id).await,
+                                ) {
+                                    (Ok(requests), Ok(outgoing)) => {
+                                        WsMessage::FriendRequestsList { requests, outgoing }
+                                    }
+                                    (Err(e), _) | (_, Err(e)) => WsMessage::Error {
                                         code: "fetch_error".to_string(),
+                                        message: e.to_string(),
+                                    },
+                                }
+                            },
+                            None => WsMessage::Error {
+                                code: "not_authorized".to_string(),
+                                message: "Требуется авторизация".to_string(),
+                            },
+                        }
+                    }
+                    Ok(WsMessage::CancelFriendRequest { request_id }) => {
+                        match current_user {
+                            Some(ref user) => {
+                                let req_uuid = Uuid::parse_str(&request_id)
+                                    .map_err(|e| anyhow::anyhow!("Invalid request_id: {}", e));
+                                match req_uuid {
+                                    Ok(req_uuid) => {
+                                        match messenger::cancel_friend_request(&pool, &user.id, &req_uuid)
+                                            .await
+                                        {
+                                            Ok(()) => WsMessage::FriendRequestCancelled { request_id },
+                                            Err(e) => WsMessage::Error {
+                                                code: "cancel_error".to_string(),
+                                                message: e.to_string(),
+                                            },
+                                        }
+                                    }
+                                    Err(e) => WsMessage::Error {
+                                        code: "invalid_id".to_string(),
                                         message: e.to_string(),
                                     },
                                 }
@@ -952,13 +1216,19 @@ async fn handle_connection(
             Ok(Message::Pong(_)) => {}
             Ok(Message::Close(frame)) => {
                 info!("ws closed: {peer:?} {frame:?}");
-                // Удаляем пользователя из подключений и ставим оффлайн
+                // Удаляем только это подключение из списка пользователя
                 if let Some(ref user) = current_user {
                     let mut conns = connections.write().await;
-                    conns.remove(&user.id);
-                    info!("User {} disconnected", user.username);
-                    // Обновляем статус на оффлайн
-                    let _ = messenger::set_user_online(&pool, &user.id, false).await;
+                    if let Some(entries) = conns.get_mut(&user.id) {
+                        entries.retain(|(id, _)| *id != conn_id);
+                        if entries.is_empty() {
+                            conns.remove(&user.id);
+                            info!("User {} disconnected (last)", user.username);
+                            let _ = messenger::set_user_online(&pool, &user.id, false).await;
+                        } else {
+                            info!("User {} disconnected ({} connections left)", user.username, entries.len());
+                        }
+                    }
                 }
                 break;
             }

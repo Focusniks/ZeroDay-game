@@ -5,7 +5,8 @@ type Props = {
   isConnecting: boolean;
   bandwidth: number;
   userIpAddress?: string | null;
-  onToggleConnection: () => void;
+  /** Сеть управляется WebSocket — ручное переключение отключено */
+  onToggleConnection?: () => void;
   lang: "ru" | "en";
 };
 
@@ -33,15 +34,6 @@ export function NetworkPopover({
     ? "text-emerald-400"
     : "text-slate-400";
 
-  const connectionBtnText = useMemo(() => {
-    if (isConnecting) {
-      return lang === "ru" ? "Подключение..." : "Connecting...";
-    }
-    return isConnected
-      ? (lang === "ru" ? "Выйти из сети" : "Go Offline")
-      : (lang === "ru" ? "Войти в сеть" : "Go Online");
-  }, [isConnected, isConnecting, lang]);
-
   const networkDetails = useMemo(() => {
     if (!isConnected) return null;
     return {
@@ -68,19 +60,13 @@ export function NetworkPopover({
         </div>
       </div>
 
-      {/* Connection Toggle */}
+      {/* Info: network is driven by WebSocket */}
       <div className="p-4 border-b border-cyan-500/10">
-        <button
-          onClick={onToggleConnection}
-          disabled={isConnecting}
-          className={`w-full py-2.5 px-4 rounded-lg font-semibold text-sm transition disabled:opacity-50 ${
-            isConnected
-              ? "bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30"
-              : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30"
-          }`}
-        >
-          {connectionBtnText}
-        </button>
+        <p className="text-xs text-slate-400">
+          {lang === "ru"
+            ? "Подключение к ZeroDay Network через WebSocket. Статус обновляется автоматически."
+            : "ZeroDay Network connection via WebSocket. Status updates automatically."}
+        </p>
       </div>
 
       {/* Network Status Info */}

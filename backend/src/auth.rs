@@ -110,8 +110,13 @@ pub async fn login_user(
     }
     .ok_or_else(|| anyhow!("Неверный логин или пароль."))?;
 
-    if !verify(password, &db_user.password_hash).unwrap_or(false) {
-        return Err(anyhow!("Неверный логин или пароль."));
+    match verify(password, &db_user.password_hash) {
+        Ok(true) => { /* password correct */ }
+        Ok(false) => return Err(anyhow!("Неверный логин или пароль.")),
+        Err(e) => {
+            log::error!("Bcrypt password verification failed for user {}: {}", db_user.email, e);
+            return Err(anyhow!("Ошибка проверки пароля. Попробуйте позже."));
+        }
     }
 
     sqlx::query("UPDATE users SET last_login = NOW() WHERE id = $1")
@@ -174,8 +179,13 @@ pub async fn change_password(
     .await?
     .ok_or_else(|| anyhow!("User not found"))?;
 
-    if !verify(current_password, &db_user.password_hash).unwrap_or(false) {
-        return Err(anyhow!("Текущий пароль неверный."));
+    match verify(current_password, &db_user.password_hash) {
+        Ok(true) => { /* current password correct */ }
+        Ok(false) => return Err(anyhow!("Текущий пароль неверный.")),
+        Err(e) => {
+            log::error!("Bcrypt verification failed during password change for user {}: {}", user_id, e);
+            return Err(anyhow!("Ошибка проверки текущего пароля."));
+        }
     }
 
     let new_hash = hash(new_password, DEFAULT_COST)?;
