@@ -2069,6 +2069,7 @@ export function ZeroBrowser({
         return (
           <div className="h-full">
             <iframe
+              key={`iframe-${slug}`}
               src={iframeSrc}
               className="w-full h-full border-0"
               title={site.name}
@@ -2107,6 +2108,7 @@ export function ZeroBrowser({
         return (
           <div className="h-full">
             <iframe
+              key={`iframe-${slug}`}
               src={iframeSrc}
               className="w-full h-full border-0"
               title={slug}

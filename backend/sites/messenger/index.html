@@ -497,6 +497,7 @@
             border-radius: 999px;
             min-width: 20px;
             text-align: center;
+            flex-shrink: 0;
         }
         .unread-badge.hidden { display: none !important; }
 
@@ -1149,6 +1150,26 @@
         <button type="button" id="zg-ctx-delete" class="danger">Удалить</button>
     </div>
     <script>
+        // Предотвращаем перезагрузку страницы при сворачивании/изменении видимости
+        // Это нужно чтобы WebSocket соединение не разрывалось
+        document.addEventListener('visibilitychange', function(e) {
+            // Не делаем ничего при изменении видимости - оставляем соединение живым
+            console.log('Visibility changed:', document.visibilityState);
+            e.preventDefault();
+        }, { passive: false });
+        
+        // Дополнительная защита от unload
+        window.addEventListener('beforeunload', function(e) {
+            console.log('beforeunload prevented');
+            e.preventDefault();
+            e.returnValue = '';
+        });
+        
+        window.addEventListener('unload', function(e) {
+            console.log('unload prevented');
+            e.preventDefault();
+        });
+        
         // Конфигурация - читаем из URL параметров если есть
         (function() {
             const params = new URLSearchParams(window.location.search);
@@ -1456,10 +1477,15 @@
                     break;
                 case 'ConversationsList':
                     conversations = normalizeConversations(data.conversations || []);
+                    
+                    // Debug: log unread counts
+                    console.log('ConversationsList received:', conversations.map(c => ({id: c.id, unread: c.unread_count})));
+                    
                     renderChatList();
                     
                     // Подсчитываем общее количество непрочитанных сообщений и отправляем в родительское окно
                     const totalUnread = conversations.reduce((sum, c) => sum + (c.unread_count || 0), 0);
+                    console.log('Total unread:', totalUnread);
                     if (window.sendToParent) {
                         window.sendToParent('unread_count', { count: totalUnread });
                     }
@@ -1531,11 +1557,26 @@
                                 if (container) container.scrollTop = container.scrollHeight;
                             }, 50);
                         }
+                        
                         // Обновляем список чатов (чтобы показать новое сообщение в списке)
                         sendWs({ type: 'GetConversations' });
                         
-                        // Отправляем уведомление в родительское окно
+                        // Обновляем счётчик непрочитанных - увеличиваем для чата если он не открыт
                         const isChatOpen = activeConversation && msg.conversation_id === activeConversation.id;
+                        if (!isChatOpen && !isOwnMessage) {
+                            // Находим чат и увеличиваем счётчик
+                            const convIdx = conversations.findIndex(c => c.id === msg.conversation_id);
+                            if (convIdx >= 0) {
+                                conversations[convIdx].unread_count = (conversations[convIdx].unread_count || 0) + 1;
+                            }
+                            // Сразу отправляем обновлённый счётчик в родительское окно
+                            const totalUnread = conversations.reduce((sum, c) => sum + (c.unread_count || 0), 0);
+                            if (window.sendToParent) {
+                                window.sendToParent('unread_count', { count: totalUnread });
+                            }
+                        }
+                        
+                        // Отправляем уведомление в родительское окно
                         if (window.sendToParent) {
                             window.sendToParent('message_received', {
                                 message: msg,
@@ -2091,6 +2132,10 @@
                     const active = activeConversation?.id===c.id;
                     const avatar = getConversationAvatarUrl(c);
                     const onlineClass = c.other_user?.is_online ? 'online' : (c.other_user ? 'offline' : '');
+                    const unread = c.unread_count || 0;
+                    
+                    // Debug: always show badge for testing
+                    const badgeHtml = unread > 0 ? '<span class="unread-badge">'+(unread > 9 ? '9+' : unread)+'</span>' : '';
                     
                     return `<div class="chat-item ${active?'active':''}" onclick="selectChat('${c.id}')">
                         <div class="chat-avatar-wrap ${onlineClass}"><div class="chat-avatar">${avatar?'<img src="'+escapeHtml(avatar)+'" alt="">':getInitials(name)}</div></div>
@@ -2101,7 +2146,7 @@
                             </div>
                             <div class="chat-preview">
                                 <span class="chat-preview-text ${lm?.sender_id===profile?.user_id?'own':''}">${lm?(lm.sender_id!==profile?.user_id?lm.sender_username+': ':'')+lm.content:'Нет сообщений'}</span>
-                                ${c.unread_count>0?'<span class="unread-badge">'+c.unread_count+'</span>':''}
+                                ${badgeHtml}
                             </div>
                         </div>
                     </div>`;
@@ -2682,14 +2727,15 @@
         };
 
         window.showNotification = function(message, type='info') {
-            // Send notification to parent window (ZeroBrowser)
-            if (window.parent && window.parent !== window) {
-                window.parent.postMessage({
-                    type: 'zeroday:notification',
-                    payload: { message, notificationType: type }
-                }, '*');
-            }
+            // Disabled: Do not send notification to parent window (ZeroBrowser) - prevent desktop notifications in game
+            // if (window.parent && window.parent !== window) {
+            //     window.parent.postMessage({
+            //         type: 'zeroday:notification',
+            //         payload: { message, notificationType: type }
+            //     }, '*');
+            // }
             
+            // Show in-app toast only (inside messenger iframe)
             const notif = document.createElement('div');
             const bg = type === 'success' ? 'var(--gradient-success)' : type === 'error' ? 'linear-gradient(135deg,#e53935,#c62828)' : 'var(--gradient-primary)';
             notif.style.cssText = `position:fixed;top:20px;right:20px;padding:16px 24px;background:${bg};border-radius:12px;color:white;font-weight:600;box-shadow:var(--shadow-lg);z-index:10000;animation:slideUp 0.3s ease-out`;
