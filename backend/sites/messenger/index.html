@@ -1507,16 +1507,23 @@
                     break;
                 case 'MessageSent':
                     if (data.message) {
-                        const idx = messages.findIndex(m => m.pending && m.conversation_id === data.message.conversation_id && String(m.sender_id) === String(data.message.sender_id));
-                        if (idx >= 0) messages.splice(idx, 1);
+                        console.log('MessageSent received:', data.message);
+                        const idx = messages.findIndex(m => m.pending && String(m.conversation_id) === String(data.message.conversation_id) && String(m.sender_id) === String(data.message.sender_id));
+                        console.log('Pending message index:', idx);
+                        if (idx >= 0) {
+                            messages.splice(idx, 1);
+                        }
                         handleMessageUpdate(data.message);
                     }
                     break;
                 case 'MessageReceived':
                     if (data.message) {
                         const msg = data.message;
-                        // Если чат открыт — добавляем сообщение
-                        if (activeConversation && msg.conversation_id === activeConversation.id) {
+                        // Не добавляем сообщение если мы сами его отправили (оно уже добавлено как pending)
+                        const isOwnMessage = String(msg.sender_id) === String(profile?.user_id);
+                        
+                        // Если чат открыт и это не наше сообщение — добавляем сообщение
+                        if (!isOwnMessage && activeConversation && msg.conversation_id === activeConversation.id) {
                             handleMessageUpdate(msg);
                             // Прокрутка вниз
                             setTimeout(() => {
@@ -1766,6 +1773,7 @@
         }
 
         function handleMessageUpdate(msg) {
+            console.log('handleMessageUpdate called:', msg);
             const viewing = activeConversation && String(activeConversation.id) === String(msg.conversation_id);
             const idx = conversations.findIndex(c=>c.id===msg.conversation_id);
             if(idx!==-1) {
