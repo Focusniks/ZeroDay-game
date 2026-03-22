@@ -138,23 +138,30 @@ pub async fn get_admin_stats(pool: &PgPool) -> anyhow::Result<AdminStats> {
     .await?;
 
     let online_users: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM user_online_status WHERE is_online = true"
+        "SELECT COALESCE(COUNT(*), 0)::BIGINT FROM user_online_status WHERE is_online = true"
     )
     .fetch_one(pool)
-    .await?;
+    .await
+    .unwrap_or(0);
 
     let banned_users: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM users WHERE id IN (SELECT user_id FROM user_roles WHERE role = 'banned')"
+        r#"SELECT COALESCE(COUNT(DISTINCT u.id), 0)::BIGINT 
+           FROM users u
+           JOIN user_roles ur ON ur.user_id = u.id AND ur.role = 'banned'"#
     )
     .fetch_one(pool)
     .await
     .unwrap_or(0);
 
     let active_admins: i64 = sqlx::query_scalar(
-        "SELECT COUNT(DISTINCT user_id) FROM user_online_status WHERE is_online = true AND user_id IN (SELECT user_id FROM user_roles WHERE role = 'admin')"
+        r#"SELECT COALESCE(COUNT(DISTINCT uos.user_id), 0)::BIGINT 
+           FROM user_online_status uos
+           JOIN user_roles ur ON ur.user_id = uos.user_id AND ur.role = 'admin'
+           WHERE uos.is_online = true"#
     )
     .fetch_one(pool)
-    .await?;
+    .await
+    .unwrap_or(0);
 
     Ok(AdminStats {
         total_users,
@@ -184,11 +191,11 @@ pub async fn get_users(
     let (count_query, data_query) = if search_pattern.is_some() {
         (
             r#"
-            SELECT COUNT(*) FROM users 
+            SELECT COUNT(*) FROM users
             WHERE LOWER(username) LIKE $1 OR LOWER(email) LIKE $1
             "#,
             r#"
-            SELECT u.*, 
+            SELECT u.id, u.username, u.email, u.ip_address, u.level, u.xp, u.reputation, u.created_at::TIMESTAMPTZ, u.last_login::TIMESTAMPTZ, u.disk_capacity_mb,
                 EXISTS(SELECT 1 FROM user_roles WHERE user_id = u.id AND role = 'banned') as is_banned
             FROM users u
             WHERE LOWER(u.username) LIKE $1 OR LOWER(u.email) LIKE $1
@@ -200,7 +207,7 @@ pub async fn get_users(
         (
             "SELECT COUNT(*) FROM users",
             r#"
-            SELECT u.*,
+            SELECT u.id, u.username, u.email, u.ip_address, u.level, u.xp, u.reputation, u.created_at::TIMESTAMPTZ, u.last_login::TIMESTAMPTZ, u.disk_capacity_mb,
                 EXISTS(SELECT 1 FROM user_roles WHERE user_id = u.id AND role = 'banned') as is_banned
             FROM users u
             ORDER BY u.created_at DESC
@@ -220,7 +227,7 @@ pub async fn get_users(
             .await?
     };
 
-    let users: Vec<(sqlx::types::Uuid, String, String, String, i32, i32, i32, i32, chrono::DateTime<Utc>, Option<chrono::DateTime<Utc>>, bool)> = 
+    let users: Vec<(sqlx::types::Uuid, String, String, String, i32, i32, i32, chrono::DateTime<Utc>, Option<chrono::DateTime<Utc>>, i32, bool)> =
         if let Some(ref pattern) = search_pattern {
             sqlx::query_as(data_query)
                 .bind(pattern)
@@ -238,12 +245,18 @@ pub async fn get_users(
 
     let mut items = Vec::new();
     for u in users {
-        let roles = get_user_roles(pool, &u.0).await?;
+        let roles = match get_user_roles(pool, &u.0).await {
+            Ok(r) => r,
+            Err(e) => {
+                log::error!("Failed to get user roles: {}", e);
+                vec![]
+            }
+        };
         let primary_role = roles.iter().find(|r| *r == "admin")
             .or_else(|| roles.iter().find(|r| *r == "beta_tester"))
             .cloned()
             .unwrap_or_else(|| "user".to_string());
-        
+
         items.push(UserWithRoles {
             id: u.0.to_string(),
             username: u.1,
@@ -252,10 +265,10 @@ pub async fn get_users(
             level: u.4,
             xp: u.5,
             reputation: u.6,
-            disk_capacity_mb: u.7,
+            disk_capacity_mb: u.9,
             role: primary_role,
-            created_at: Some(u.8),
-            last_login: u.9,
+            created_at: Some(u.7),
+            last_login: u.8,
             is_banned: u.10,
             roles,
         });
@@ -273,10 +286,10 @@ pub async fn get_users(
 }
 
 pub async fn get_user_by_id(pool: &PgPool, user_id: &Uuid) -> anyhow::Result<Option<UserWithRoles>> {
-    let user: Option<(Uuid, String, String, String, i32, i32, i32, i32, chrono::DateTime<Utc>, Option<chrono::DateTime<Utc>>)> =
+    let user: Option<(Uuid, String, String, String, i32, i32, i32, chrono::DateTime<Utc>, Option<chrono::DateTime<Utc>>, i32)> =
         sqlx::query_as(
             r#"
-            SELECT id, username, email, ip_address, level, xp, reputation, disk_capacity_mb, created_at, last_login
+            SELECT id, username, email, ip_address, level, xp, reputation, created_at::TIMESTAMPTZ, last_login::TIMESTAMPTZ, disk_capacity_mb
             FROM users WHERE id = $1
             "#,
         )
@@ -285,12 +298,18 @@ pub async fn get_user_by_id(pool: &PgPool, user_id: &Uuid) -> anyhow::Result<Opt
         .await?;
 
     if let Some(u) = user {
-        let roles = get_user_roles(pool, &u.0).await?;
+        let roles = match get_user_roles(pool, &u.0).await {
+            Ok(r) => r,
+            Err(e) => {
+                log::error!("Failed to get user roles: {}", e);
+                vec![]
+            }
+        };
         let primary_role = roles.iter().find(|r| *r == "admin")
             .or_else(|| roles.iter().find(|r| *r == "beta_tester"))
             .cloned()
             .unwrap_or_else(|| "user".to_string());
-        
+
         Ok(Some(UserWithRoles {
             id: u.0.to_string(),
             username: u.1,
@@ -299,10 +318,10 @@ pub async fn get_user_by_id(pool: &PgPool, user_id: &Uuid) -> anyhow::Result<Opt
             level: u.4,
             xp: u.5,
             reputation: u.6,
-            disk_capacity_mb: u.7,
+            disk_capacity_mb: u.9,
             role: primary_role,
-            created_at: Some(u.8),
-            last_login: u.9,
+            created_at: Some(u.7),
+            last_login: u.8,
             is_banned: roles.contains(&"banned".to_string()),
             roles,
         }))

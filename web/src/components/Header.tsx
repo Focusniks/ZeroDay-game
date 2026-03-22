@@ -29,8 +29,6 @@ export function Header() {
     { to: '/', label: 'Главная' },
     { to: '/marketplace', label: 'Маркетплейс' },
     { to: '/services', label: 'Услуги' },
-    ...(isAuthenticated ? [{ to: '/profile', label: 'Кабинет' }] : []),
-    ...(isAdmin ? [{ to: '/admin', label: 'Админ' }] : []),
   ];
 
   return (

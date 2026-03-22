@@ -12,12 +12,16 @@ export function useAdminStats() {
   const [error, setError] = useState<string | null>(null);
 
   const fetchStats = useCallback(async () => {
+    console.log('[AdminStats] Fetching stats...');
     setLoading(true);
     setError(null);
     try {
+      console.log('[AdminStats] Calling API...');
       const data = await adminApi.getAdminStatsApi();
+      console.log('[AdminStats] Got data:', data);
       setStats(data);
     } catch (err) {
+      console.error('[AdminStats] Error:', err);
       setError((err as Error).message);
     } finally {
       setLoading(false);

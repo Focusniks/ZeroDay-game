@@ -14,12 +14,7 @@ use zeroday_backend::middleware::{RateLimiter, extract_client_ip};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-#[derive(Clone)]
-struct AppState {
-    pool: PgPool,
-    jwt_secret: String,
-    rate_limiter: RateLimiter,
-}
+use zeroday_backend::AppState;
 
 /// Каталог сайтов браузера (нужен зарегистрированный `web::Data<PgPool>`).
 async fn browser_catalog_sites(pool: web::Data<PgPool>) -> impl Responder {
@@ -2015,6 +2010,7 @@ async fn main() -> anyhow::Result<()> {
             .route("/admin/users", web::get().to(admin_http::get_users_http))
             .route("/admin/users/{user_id}", web::patch().to(admin_http::update_user_http))
             .route("/admin/users/{user_id}/ban", web::post().to(admin_http::ban_user_http))
+            .route("/admin/grant-me", web::post().to(admin_http::grant_admin_to_me))
             .route("/admin/users/{user_id}/role", web::post().to(admin_http::change_role_http))
             .route("/admin/logs", web::get().to(admin_http::get_logs_http))
             .route("/admin/beta-applications", web::get().to(admin_http::get_beta_applications_http))

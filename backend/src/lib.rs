@@ -25,4 +25,5 @@ pub fn jwt_decoding_key(secret: &str) -> DecodingKey {
 pub struct AppState {
     pub pool: PgPool,
     pub jwt_secret: String,
+    pub rate_limiter: crate::middleware::RateLimiter,
 }

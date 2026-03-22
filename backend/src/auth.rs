@@ -73,7 +73,6 @@ pub struct UserRole {
     pub id: Uuid,
     pub user_id: Uuid,
     pub role: String,
-    pub created_at: chrono::DateTime<Utc>,
 }
 
 pub async fn get_user_roles(pool: &PgPool, user_id: &Uuid) -> Result<Vec<String>, sqlx::Error> {
@@ -236,7 +235,13 @@ pub async fn register_user(
     .map_err(map_register_sqlx_error)?;
 
     // Роли назначаются автоматически через триггер, но получим их явно
-    let roles = get_user_roles(pool, &db_user.id).await?;
+    let roles = match get_user_roles(pool, &db_user.id).await {
+        Ok(r) => r,
+        Err(e) => {
+            log::error!("Failed to get user roles: {}", e);
+            vec![]
+        }
+    };
     let primary_role = roles.iter().find(|r| *r == "admin")
         .or_else(|| roles.iter().find(|r| *r == "beta_tester"))
         .cloned()
@@ -311,8 +316,14 @@ pub async fn login_user(
         .await
         .ok();
 
-    // Получаем роли
-    let roles = get_user_roles(pool, &db_user.id).await?;
+    // Получаем роли (с fallback на default)
+    let roles = match get_user_roles(pool, &db_user.id).await {
+        Ok(r) => r,
+        Err(e) => {
+            log::error!("Failed to get user roles: {}", e);
+            vec![]
+        }
+    };
     let primary_role = roles.iter().find(|r| *r == "admin")
         .or_else(|| roles.iter().find(|r| *r == "beta_tester"))
         .cloned()
@@ -389,7 +400,13 @@ pub async fn authorize_user(pool: &PgPool, jwt_secret: &str, token: &str) -> any
     .ok_or_else(|| anyhow!("User not found"))?;
 
     // Получаем роль
-    let roles = get_user_roles(pool, &db_user.id).await?;
+    let roles = match get_user_roles(pool, &db_user.id).await {
+        Ok(r) => r,
+        Err(e) => {
+            log::error!("Failed to get user roles: {}", e);
+            vec![]
+        }
+    };
     let primary_role = roles.iter().find(|r| *r == "admin")
         .or_else(|| roles.iter().find(|r| *r == "beta_tester"))
         .cloned()
@@ -411,7 +428,13 @@ pub async fn get_user_by_id(pool: &PgPool, user_id: &Uuid) -> anyhow::Result<Use
     .await?
     .ok_or_else(|| anyhow!("User not found"))?;
 
-    let roles = get_user_roles(pool, &db_user.id).await?;
+    let roles = match get_user_roles(pool, &db_user.id).await {
+        Ok(r) => r,
+        Err(e) => {
+            log::error!("Failed to get user roles: {}", e);
+            vec![]
+        }
+    };
     let primary_role = roles.iter().find(|r| *r == "admin")
         .or_else(|| roles.iter().find(|r| *r == "beta_tester"))
         .cloned()

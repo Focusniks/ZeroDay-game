@@ -38,7 +38,7 @@ pub struct PaginationQuery {
 
 pub async fn get_stats_http(state: web::Data<crate::AppState>, req: HttpRequest) -> impl Responder {
     let jwt_secret = &state.jwt_secret;
-    
+
     // Проверяем, что пользователь авторизован
     match user_id_from_request(&req, jwt_secret) {
         Ok(_) => {}
@@ -55,10 +55,14 @@ pub async fn get_stats_http(state: web::Data<crate::AppState>, req: HttpRequest)
             "ok": true,
             "stats": stats
         })),
-        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
-            "ok": false,
-            "error": e.to_string()
-        })),
+        Err(e) => {
+            log::error!("[AdminStats] Failed to get admin stats: {:?}", e);
+            HttpResponse::InternalServerError().json(serde_json::json!({
+                "ok": false,
+                "error": format!("Database error: {}", e),
+                "debug": e.to_string()
+            }))
+        }
     }
 }
 
@@ -522,6 +526,45 @@ pub async fn logout_http(state: web::Data<crate::AppState>, req: HttpRequest) ->
     match auth::logout_user(&state.pool, &user_id, refresh_token).await {
         Ok(()) => HttpResponse::Ok().json(serde_json::json!({
             "ok": true
+        })),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
+            "ok": false,
+            "error": e.to_string()
+        })),
+    }
+}
+
+// ==================== ВРЕМЕННЫЙ ЭНДПОИНТ ДЛЯ ТЕСТА ====================
+
+/// Временный эндпоинт для назначения роли admin текущему пользователю
+/// Удалить после тестирования!
+pub async fn grant_admin_to_me(state: web::Data<crate::AppState>, req: HttpRequest) -> impl Responder {
+    let jwt_secret = &state.jwt_secret;
+
+    let user_id_str = match user_id_from_request(&req, jwt_secret) {
+        Ok(id) => id,
+        Err(_) => {
+            return HttpResponse::Unauthorized().json(serde_json::json!({
+                "ok": false,
+                "error": "Unauthorized"
+            }));
+        }
+    };
+
+    let user_id = match Uuid::parse_str(&user_id_str) {
+        Ok(id) => id,
+        Err(_) => {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "ok": false,
+                "error": "Invalid user ID"
+            }));
+        }
+    };
+
+    match auth::add_role_to_user(&state.pool, &user_id, "admin").await {
+        Ok(()) => HttpResponse::Ok().json(serde_json::json!({
+            "ok": true,
+            "message": "Admin role granted"
         })),
         Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
             "ok": false,
