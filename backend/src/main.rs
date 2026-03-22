@@ -1942,15 +1942,13 @@ async fn main() -> anyhow::Result<()> {
     });
 
     // Разрешаем все origins для разработки или указываем конкретные
-    let cors_origin = web_origin.clone();
+    let _cors_origin = web_origin.clone();
 
     info!("HTTP server listening on http://{http_host}:{http_port}");
 
     let server = HttpServer::new(move || {
         let cors = Cors::default()
-            .allowed_origin(&cors_origin)
-            .allowed_origin("http://localhost:5173")
-            .allowed_origin("http://127.0.0.1:5173")
+            .allow_any_origin()
             .allowed_methods(vec!["GET", "POST", "PUT", "DELETE", "OPTIONS"])
             .allowed_headers(vec![
                 actix_web::http::header::AUTHORIZATION,

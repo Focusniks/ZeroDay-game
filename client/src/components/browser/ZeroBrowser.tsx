@@ -10,8 +10,12 @@ import { eventBus, DesktopEvents } from "../../desktop/modules/EventBus";
 import { notificationManager } from "../../desktop/modules/NotificationModule/NotificationModule";
 
 // Преобразование ws:// URL в http:// URL
+// Меняет порт с 8080 (WebSocket) на 8000 (HTTP)
 function wsToHttpUrl(wsUrl: string): string {
-  return wsUrl.replace(/^ws:\/\//, 'http://').replace(/\/ws$/, '');
+  return wsUrl
+    .replace(/^ws:\/\//, 'http://')
+    .replace(/\/ws$/, '')
+    .replace(/:8080(\/?)/, ':8000$1');
 }
 
 // Значения по умолчанию
