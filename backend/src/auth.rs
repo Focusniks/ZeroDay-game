@@ -1,5 +1,6 @@
 use anyhow::anyhow;
 use bcrypt::{hash, verify, DEFAULT_COST};
+use chrono::{Duration as ChronoDuration, Utc};
 use jsonwebtoken::{Algorithm, Header, Validation};
 use serde::{Deserialize, Serialize};
 use sqlx::{Error as SqlxError, PgPool};
@@ -17,6 +18,9 @@ pub struct User {
     pub xp: i32,
     pub reputation: i32,
     pub disk_capacity_mb: i32,
+    pub role: String,
+    pub created_at: Option<chrono::DateTime<Utc>>,
+    pub last_login: Option<chrono::DateTime<Utc>>,
 }
 
 #[derive(Deserialize, sqlx::FromRow)]
@@ -33,10 +37,174 @@ struct DbUser {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-struct Claims {
-    sub: String,
-    exp: usize,
+pub struct Claims {
+    pub sub: String,
+    pub exp: usize,
+    pub token_type: String,
 }
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct RefreshClaims {
+    pub sub: String,
+    pub exp: usize,
+    pub token_type: String,
+    pub refresh_id: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct AuthResponse {
+    pub token: String,
+    pub refresh_token: String,
+    pub user: User,
+    pub expires_in: i64,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct TokenRefreshResponse {
+    pub token: String,
+    pub refresh_token: String,
+    pub expires_in: i64,
+}
+
+// ==================== РОЛИ ====================
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct UserRole {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub role: String,
+    pub created_at: chrono::DateTime<Utc>,
+}
+
+pub async fn get_user_roles(pool: &PgPool, user_id: &Uuid) -> Result<Vec<String>, sqlx::Error> {
+    let roles: Vec<UserRole> = sqlx::query_as::<_, UserRole>(
+        "SELECT * FROM user_roles WHERE user_id = $1"
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(roles.into_iter().map(|r| r.role).collect())
+}
+
+pub async fn has_role(pool: &PgPool, user_id: &Uuid, role: &str) -> Result<bool, sqlx::Error> {
+    let exists = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM user_roles WHERE user_id = $1 AND role = $2)"
+    )
+    .bind(user_id)
+    .bind(role)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(exists)
+}
+
+pub async fn is_admin(pool: &PgPool, user_id: &Uuid) -> Result<bool, sqlx::Error> {
+    has_role(pool, user_id, "admin").await
+}
+
+pub async fn add_role_to_user(pool: &PgPool, user_id: &Uuid, role: &str) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO user_roles (user_id, role) VALUES ($1, $2) ON CONFLICT DO NOTHING"
+    )
+    .bind(user_id)
+    .bind(role)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn remove_role_from_user(pool: &PgPool, user_id: &Uuid, role: &str) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM user_roles WHERE user_id = $1 AND role = $2")
+        .bind(user_id)
+        .bind(role)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+// ==================== REFRESH-ТОКЕНЫ ====================
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct RefreshToken {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub token_hash: String,
+    pub device_info: Option<String>,
+    pub ip_address: Option<String>,
+    pub expires_at: chrono::DateTime<Utc>,
+    pub created_at: chrono::DateTime<Utc>,
+    pub revoked_at: Option<chrono::DateTime<Utc>>,
+}
+
+pub async fn create_refresh_token(
+    pool: &PgPool,
+    user_id: &Uuid,
+    token: &str,
+    device_info: Option<&str>,
+    ip_address: Option<&str>,
+) -> Result<RefreshToken, sqlx::Error> {
+    let token_hash = hash(token, DEFAULT_COST).unwrap_or_default();
+    let expires_at = Utc::now() + ChronoDuration::days(30);
+
+    sqlx::query_as::<_, RefreshToken>(
+        r#"
+        INSERT INTO refresh_tokens (user_id, token_hash, device_info, ip_address, expires_at)
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING *
+        "#,
+    )
+    .bind(user_id)
+    .bind(token_hash)
+    .bind(device_info)
+    .bind(ip_address)
+    .bind(expires_at)
+    .fetch_one(pool)
+    .await
+}
+
+pub async fn verify_refresh_token(
+    pool: &PgPool,
+    user_id: &Uuid,
+    token: &str,
+) -> Result<Option<RefreshToken>, sqlx::Error> {
+    let tokens = sqlx::query_as::<_, RefreshToken>(
+        r#"
+        SELECT * FROM refresh_tokens 
+        WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > NOW()
+        ORDER BY created_at DESC
+        "#
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await?;
+
+    for stored_token in tokens {
+        if verify(token, &stored_token.token_hash).unwrap_or(false) {
+            return Ok(Some(stored_token));
+        }
+    }
+
+    Ok(None)
+}
+
+pub async fn revoke_refresh_token(pool: &PgPool, token_id: &Uuid) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE refresh_tokens SET revoked_at = NOW() WHERE id = $1")
+        .bind(token_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn revoke_all_user_tokens(pool: &PgPool, user_id: &Uuid) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE refresh_tokens SET revoked_at = NOW() WHERE user_id = $1")
+        .bind(user_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+// ==================== JWT ТОКЕНЫ ====================
 
 pub async fn register_user(
     pool: &PgPool,
@@ -44,7 +212,7 @@ pub async fn register_user(
     username: &str,
     email: &str,
     password: &str,
-) -> anyhow::Result<(String, User)> {
+) -> anyhow::Result<AuthResponse> {
     validate_register_input(username, email, password)?;
 
     let username = username.trim().to_lowercase();
@@ -59,16 +227,32 @@ pub async fn register_user(
         RETURNING id, username, email, password_hash, ip_address, level, xp, reputation, disk_capacity_mb
         "#,
     )
-    .bind(username)
-    .bind(email)
-    .bind(password_hash)
-    .bind(ip_address)
+    .bind(&username)
+    .bind(&email)
+    .bind(&password_hash)
+    .bind(&ip_address)
     .fetch_one(pool)
     .await
     .map_err(map_register_sqlx_error)?;
 
-    let token = generate_jwt(db_user.id, jwt_secret)?;
-    Ok((token, to_public_user(db_user)))
+    // Роли назначаются автоматически через триггер, но получим их явно
+    let roles = get_user_roles(pool, &db_user.id).await?;
+    let primary_role = roles.iter().find(|r| *r == "admin")
+        .or_else(|| roles.iter().find(|r| *r == "beta_tester"))
+        .cloned()
+        .unwrap_or_else(|| "user".to_string());
+
+    let (token, refresh_token) = generate_tokens(&db_user.id, jwt_secret)?;
+    
+    // Создаём refresh-токен в БД
+    create_refresh_token(pool, &db_user.id, &refresh_token, None, Some(&ip_address)).await.ok();
+
+    Ok(AuthResponse {
+        token,
+        refresh_token,
+        user: to_public_user_with_role(db_user, &primary_role),
+        expires_in: 3600,
+    })
 }
 
 pub async fn login_user(
@@ -76,7 +260,9 @@ pub async fn login_user(
     jwt_secret: &str,
     login: &str,
     password: &str,
-) -> anyhow::Result<(String, User)> {
+    device_info: Option<&str>,
+    ip_address: Option<&str>,
+) -> anyhow::Result<AuthResponse> {
     let identifier = login.trim();
     if identifier.is_empty() || password.is_empty() {
         return Err(anyhow!("Укажите логин и пароль."));
@@ -93,7 +279,7 @@ pub async fn login_user(
             WHERE email = $1
             "#,
         )
-        .bind(normalized)
+        .bind(&normalized)
         .fetch_optional(pool)
         .await?
     } else {
@@ -104,7 +290,7 @@ pub async fn login_user(
             WHERE username = $1
             "#,
         )
-        .bind(normalized)
+        .bind(&normalized)
         .fetch_optional(pool)
         .await?
     }
@@ -125,8 +311,60 @@ pub async fn login_user(
         .await
         .ok();
 
-    let token = generate_jwt(db_user.id, jwt_secret)?;
-    Ok((token, to_public_user(db_user)))
+    // Получаем роли
+    let roles = get_user_roles(pool, &db_user.id).await?;
+    let primary_role = roles.iter().find(|r| *r == "admin")
+        .or_else(|| roles.iter().find(|r| *r == "beta_tester"))
+        .cloned()
+        .unwrap_or_else(|| "user".to_string());
+
+    let (token, refresh_token) = generate_tokens(&db_user.id, jwt_secret)?;
+    
+    // Создаём refresh-токен в БД
+    create_refresh_token(pool, &db_user.id, &refresh_token, device_info, ip_address).await.ok();
+
+    Ok(AuthResponse {
+        token,
+        refresh_token,
+        user: to_public_user_with_role(db_user, &primary_role),
+        expires_in: 3600,
+    })
+}
+
+pub async fn refresh_tokens(
+    pool: &PgPool,
+    jwt_secret: &str,
+    user_id: &Uuid,
+    refresh_token: &str,
+) -> anyhow::Result<TokenRefreshResponse> {
+    // Находим валидный refresh-токен
+    let stored_token = verify_refresh_token(pool, user_id, refresh_token)
+        .await?
+        .ok_or_else(|| anyhow!("Недействительный refresh-токен."))?;
+
+    // Отзываем старый токен
+    revoke_refresh_token(pool, &stored_token.id).await?;
+
+    // Генерируем новую пару токенов
+    let (new_token, new_refresh_token) = generate_tokens(user_id, jwt_secret)?;
+    
+    // Создаём новый refresh-токен
+    create_refresh_token(pool, user_id, &new_refresh_token, stored_token.device_info.as_deref(), stored_token.ip_address.as_deref()).await?;
+
+    Ok(TokenRefreshResponse {
+        token: new_token,
+        refresh_token: new_refresh_token,
+        expires_in: 3600,
+    })
+}
+
+pub async fn logout_user(pool: &PgPool, user_id: &Uuid, refresh_token: Option<&str>) -> anyhow::Result<()> {
+    if let Some(token) = refresh_token {
+        if let Ok(Some(stored_token)) = verify_refresh_token(pool, user_id, token).await {
+            revoke_refresh_token(pool, &stored_token.id).await?;
+        }
+    }
+    Ok(())
 }
 
 pub async fn authorize_user(pool: &PgPool, jwt_secret: &str, token: &str) -> anyhow::Result<User> {
@@ -150,7 +388,36 @@ pub async fn authorize_user(pool: &PgPool, jwt_secret: &str, token: &str) -> any
     .await?
     .ok_or_else(|| anyhow!("User not found"))?;
 
-    Ok(to_public_user(db_user))
+    // Получаем роль
+    let roles = get_user_roles(pool, &db_user.id).await?;
+    let primary_role = roles.iter().find(|r| *r == "admin")
+        .or_else(|| roles.iter().find(|r| *r == "beta_tester"))
+        .cloned()
+        .unwrap_or_else(|| "user".to_string());
+
+    Ok(to_public_user_with_role(db_user, &primary_role))
+}
+
+pub async fn get_user_by_id(pool: &PgPool, user_id: &Uuid) -> anyhow::Result<User> {
+    let db_user = sqlx::query_as::<_, DbUser>(
+        r#"
+        SELECT id, username, email, password_hash, ip_address, level, xp, reputation, disk_capacity_mb
+        FROM users
+        WHERE id = $1
+        "#,
+    )
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| anyhow!("User not found"))?;
+
+    let roles = get_user_roles(pool, &db_user.id).await?;
+    let primary_role = roles.iter().find(|r| *r == "admin")
+        .or_else(|| roles.iter().find(|r| *r == "beta_tester"))
+        .cloned()
+        .unwrap_or_else(|| "user".to_string());
+
+    Ok(to_public_user_with_role(db_user, &primary_role))
 }
 
 pub async fn change_password(
@@ -195,6 +462,9 @@ pub async fn change_password(
         .execute(pool)
         .await?;
 
+    // Отзываем все refresh-токены после смены пароля
+    revoke_all_user_tokens(pool, &user_id).await?;
+
     Ok(())
 }
 
@@ -203,6 +473,13 @@ pub fn decode_user_id_from_jwt(token: &str, secret: &str) -> anyhow::Result<Stri
     Ok(claims.sub)
 }
 
+pub fn verify_jwt(token: &str, secret: &str) -> bool {
+    let validation = Validation::new(Algorithm::HS256);
+    jsonwebtoken::decode::<Claims>(token, &jwt_decoding_key(secret), &validation).is_ok()
+}
+
+// ==================== ВНУТРЕННИЕ ФУНКЦИИ ====================
+
 fn decode_jwt_claims(token: &str, secret: &str) -> anyhow::Result<Claims> {
     let validation = Validation::new(Algorithm::HS256);
     let token_data = jsonwebtoken::decode::<Claims>(token, &jwt_decoding_key(secret), &validation)
@@ -210,11 +487,48 @@ fn decode_jwt_claims(token: &str, secret: &str) -> anyhow::Result<Claims> {
     Ok(token_data.claims)
 }
 
-fn generate_jwt(user_id: Uuid, secret: &str) -> anyhow::Result<String> {
-    let exp = (chrono::Utc::now() + chrono::Duration::hours(24)).timestamp() as usize;
+fn generate_tokens(user_id: &Uuid, secret: &str) -> anyhow::Result<(String, String)> {
+    // Access token - 1 час
+    let exp = (Utc::now() + ChronoDuration::hours(1)).timestamp() as usize;
     let claims = Claims {
         sub: user_id.to_string(),
         exp,
+        token_type: "access".to_string(),
+    };
+
+    let token = jsonwebtoken::encode(
+        &Header::new(Algorithm::HS256),
+        &claims,
+        &jwt_encoding_key(secret),
+    )?;
+
+    // Refresh token - 30 дней
+    let refresh_exp = (Utc::now() + ChronoDuration::days(30)).timestamp() as usize;
+    let refresh_id = Uuid::new_v4().to_string();
+    let refresh_claims = RefreshClaims {
+        sub: user_id.to_string(),
+        exp: refresh_exp,
+        token_type: "refresh".to_string(),
+        refresh_id,
+    };
+
+    let refresh_token = jsonwebtoken::encode(
+        &Header::new(Algorithm::HS256),
+        &refresh_claims,
+        &jwt_encoding_key(secret),
+    )?;
+
+    Ok((token, refresh_token))
+}
+
+#[allow(dead_code)]
+
+fn generate_jwt(user_id: Uuid, secret: &str) -> anyhow::Result<String> {
+    let exp = (Utc::now() + ChronoDuration::hours(24)).timestamp() as usize;
+    let claims = Claims {
+        sub: user_id.to_string(),
+        exp,
+        token_type: "access".to_string(),
     };
 
     let token = jsonwebtoken::encode(
@@ -223,11 +537,6 @@ fn generate_jwt(user_id: Uuid, secret: &str) -> anyhow::Result<String> {
         &jwt_encoding_key(secret),
     )?;
     Ok(token)
-}
-
-pub fn verify_jwt(token: &str, secret: &str) -> bool {
-    let validation = Validation::new(Algorithm::HS256);
-    jsonwebtoken::decode::<Claims>(token, &jwt_decoding_key(secret), &validation).is_ok()
 }
 
 fn generate_ip() -> String {
@@ -274,6 +583,7 @@ fn validate_register_input(username: &str, email: &str, password: &str) -> anyho
     Ok(())
 }
 
+#[allow(dead_code)]
 fn to_public_user(db_user: DbUser) -> User {
     User {
         id: db_user.id.to_string(),
@@ -284,5 +594,24 @@ fn to_public_user(db_user: DbUser) -> User {
         xp: db_user.xp,
         reputation: db_user.reputation,
         disk_capacity_mb: db_user.disk_capacity_mb,
+        role: "user".to_string(),
+        created_at: None,
+        last_login: None,
+    }
+}
+
+fn to_public_user_with_role(db_user: DbUser, role: &str) -> User {
+    User {
+        id: db_user.id.to_string(),
+        username: db_user.username,
+        email: db_user.email,
+        ip_address: db_user.ip_address,
+        level: db_user.level,
+        xp: db_user.xp,
+        reputation: db_user.reputation,
+        disk_capacity_mb: db_user.disk_capacity_mb,
+        role: role.to_string(),
+        created_at: None,
+        last_login: None,
     }
 }

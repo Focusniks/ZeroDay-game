@@ -392,7 +392,8 @@ async fn handle_connection(
                         email,
                         password,
                     }) => match auth::register_user(&pool, &jwt_secret, &username, &email, &password).await {
-                        Ok((token, user)) => {
+                        Ok(auth_response) => {
+                            let user = auth_response.user;
                             current_user = Some(user.clone());
                             // Регистрируем подключение (добавляем к списку, не заменяем)
                             if let Some(ref u) = current_user {
@@ -400,15 +401,16 @@ async fn handle_connection(
                                 conns.entry(u.id.clone()).or_default().push((conn_id, tx.clone()));
                                 info!("User {} registered and connected", u.username);
                             }
-                            WsMessage::AuthSuccess { token, user }
+                            WsMessage::AuthSuccess { token: auth_response.token, user }
                         },
                         Err(e) => WsMessage::AuthError {
                             message: e.to_string(),
                         },
                     },
                     Ok(WsMessage::Login { email, password }) => {
-                        match auth::login_user(&pool, &jwt_secret, &email, &password).await {
-                            Ok((token, user)) => {
+                        match auth::login_user(&pool, &jwt_secret, &email, &password, None, None).await {
+                            Ok(auth_response) => {
+                                let user = auth_response.user;
                                 current_user = Some(user.clone());
                                 // Регистрируем подключение (добавляем к списку, не заменяем)
                                 if let Some(ref u) = current_user {
@@ -416,7 +418,7 @@ async fn handle_connection(
                                     conns.entry(u.id.clone()).or_default().push((conn_id, tx.clone()));
                                     info!("User {} logged in and connected", u.username);
                                 }
-                                WsMessage::AuthSuccess { token, user }
+                                WsMessage::AuthSuccess { token: auth_response.token, user }
                             },
                             Err(e) => WsMessage::AuthError {
                                 message: e.to_string(),

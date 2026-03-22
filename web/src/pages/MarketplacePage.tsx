@@ -371,7 +371,7 @@ export function MarketplacePage() {
             {/* Lots Grid */}
             {loading ? (
               <SkeletonList items={8} />
-            ) : lots.length === 0 ? (
+            ) : lots?.length === 0 ? (
               <div className="text-center py-16">
                 <Package size={48} className="mx-auto text-cyber-muted mb-4" />
                 <h3 className="text-xl font-semibold text-white mb-2">Лоты не найдены</h3>

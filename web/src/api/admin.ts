@@ -2,12 +2,12 @@
  * API-функции для админ-панели
  */
 import { apiClient } from './client';
-import type { AdminStats, AdminLog, BetaApplication, PaginatedResponse, User } from '../types';
+import type { AdminStats, AdminLog, BetaApplication, PaginatedResponse, User, UserWithRoles } from '../types';
 
 /** Получить статистику */
 export async function getAdminStatsApi(): Promise<AdminStats> {
-  const { data } = await apiClient.get<AdminStats>('/admin/stats');
-  return data;
+  const response = await apiClient.get<{ ok: boolean; stats: AdminStats }>('/admin/stats');
+  return response.data.stats;
 }
 
 /** Получить список пользователей */
@@ -16,15 +16,18 @@ export async function getAdminUsersApi(params: {
   per_page?: number;
   search?: string;
   sort?: string;
-}): Promise<PaginatedResponse<User>> {
-  const { data } = await apiClient.get<PaginatedResponse<User>>('/admin/users', { params });
-  return data;
+}): Promise<PaginatedResponse<UserWithRoles>> {
+  const response = await apiClient.get<{ ok: boolean; users: PaginatedResponse<UserWithRoles> }>('/admin/users', { params });
+  return response.data.users;
 }
 
 /** Обновить пользователя */
-export async function updateAdminUserApi(userId: string, updates: Partial<User>): Promise<User> {
-  const { data } = await apiClient.patch<User>(`/admin/users/${userId}`, updates);
-  return data;
+export async function updateAdminUserApi(
+  userId: string, 
+  updates: { level?: number; xp?: number; reputation?: number; disk_capacity_mb?: number }
+): Promise<UserWithRoles> {
+  const response = await apiClient.patch<{ ok: boolean; user: UserWithRoles }>(`/admin/users/${userId}`, updates);
+  return response.data.user;
 }
 
 /** Забанить/разбанить пользователя */
@@ -43,8 +46,11 @@ export async function getBetaApplicationsApi(params: {
   per_page?: number;
   status?: string;
 }): Promise<PaginatedResponse<BetaApplication>> {
-  const { data } = await apiClient.get<PaginatedResponse<BetaApplication>>('/admin/beta-applications', { params });
-  return data;
+  const response = await apiClient.get<{ ok: boolean; applications: PaginatedResponse<BetaApplication> }>(
+    '/admin/beta-applications', 
+    { params }
+  );
+  return response.data.applications;
 }
 
 /** Обновить статус заявки на бета-тест */
@@ -60,8 +66,8 @@ export async function getAdminLogsApi(params: {
   page?: number;
   per_page?: number;
 }): Promise<PaginatedResponse<AdminLog>> {
-  const { data } = await apiClient.get<PaginatedResponse<AdminLog>>('/admin/logs', { params });
-  return data;
+  const response = await apiClient.get<{ ok: boolean; logs: PaginatedResponse<AdminLog> }>('/admin/logs', { params });
+  return response.data.logs;
 }
 
 /** Отправить заявку на бета-тест (публичный эндпоинт) */

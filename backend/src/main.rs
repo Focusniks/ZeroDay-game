@@ -8,7 +8,7 @@ use sqlx::PgPool;
 use std::env;
 use std::path::Path;
 use uuid::Uuid;
-use zeroday_backend::{auth, browser, db, websocket, fs_online, sites, messenger};
+use zeroday_backend::{auth, browser, db, websocket, fs_online, sites, messenger, admin_http};
 use zeroday_backend::auth::User as AuthUser;
 use zeroday_backend::middleware::{RateLimiter, extract_client_ip};
 use std::sync::Arc;
@@ -284,10 +284,12 @@ async fn register_http(state: web::Data<AppState>, req: HttpRequest, payload: we
     )
     .await
     {
-        Ok((token, user)) => HttpResponse::Ok().json(serde_json::json!({
+        Ok(response) => HttpResponse::Ok().json(serde_json::json!({
             "ok": true,
-            "token": token,
-            "user": user
+            "token": response.token,
+            "refresh_token": response.refresh_token,
+            "user": response.user,
+            "expires_in": response.expires_in
         })),
         Err(e) => HttpResponse::BadRequest().json(serde_json::json!({
             "ok": false,
@@ -309,11 +311,13 @@ async fn login_http(state: web::Data<AppState>, req: HttpRequest, payload: web::
             }));
     }
 
-    match auth::login_user(&state.pool, &state.jwt_secret, &payload.login, &payload.password).await {
-        Ok((token, user)) => HttpResponse::Ok().json(serde_json::json!({
+    match auth::login_user(&state.pool, &state.jwt_secret, &payload.login, &payload.password, None, None).await {
+        Ok(response) => HttpResponse::Ok().json(serde_json::json!({
             "ok": true,
-            "token": token,
-            "user": user
+            "token": response.token,
+            "refresh_token": response.refresh_token,
+            "user": response.user,
+            "expires_in": response.expires_in
         })),
         Err(e) => HttpResponse::Unauthorized().json(serde_json::json!({
             "ok": false,
@@ -1672,6 +1676,9 @@ async fn create_conversation_http(
                 xp: 0,
                 reputation: 0,
                 disk_capacity_mb: 512,
+                role: "user".to_string(),
+                created_at: None,
+                last_login: None,
             }
         },
         _ => return HttpResponse::BadRequest().json(serde_json::json!({
@@ -1754,6 +1761,9 @@ async fn send_message_http_api(
                 xp: 0,
                 reputation: 0,
                 disk_capacity_mb: 512,
+                role: "user".to_string(),
+                created_at: None,
+                last_login: None,
             }
         },
         _ => return HttpResponse::BadRequest().json(serde_json::json!({
@@ -1998,6 +2008,17 @@ async fn main() -> anyhow::Result<()> {
             .route("/beta-apply", web::post().to(beta_apply_http))
             .route("/auth/me", web::get().to(me_http))
             .route("/auth/change-password", web::post().to(change_password_http))
+            .route("/auth/refresh", web::post().to(admin_http::refresh_token_http))
+            .route("/auth/logout", web::post().to(admin_http::logout_http))
+            // Admin API
+            .route("/admin/stats", web::get().to(admin_http::get_stats_http))
+            .route("/admin/users", web::get().to(admin_http::get_users_http))
+            .route("/admin/users/{user_id}", web::patch().to(admin_http::update_user_http))
+            .route("/admin/users/{user_id}/ban", web::post().to(admin_http::ban_user_http))
+            .route("/admin/users/{user_id}/role", web::post().to(admin_http::change_role_http))
+            .route("/admin/logs", web::get().to(admin_http::get_logs_http))
+            .route("/admin/beta-applications", web::get().to(admin_http::get_beta_applications_http))
+            .route("/admin/beta-applications/{id}", web::patch().to(admin_http::update_beta_application_http))
             .route("/marketplace/lots", web::get().to(list_lots_http))
             .route("/marketplace/lots", web::post().to(create_lot_http))
             .route("/marketplace/my/lots", web::get().to(my_lots_http))
